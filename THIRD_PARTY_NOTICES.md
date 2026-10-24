@@ -4,11 +4,10 @@ papa-seo
 Copyright (c) 2026 AFFPAPA (https://affpapa.org)
 Licensed under the MIT License (see LICENSE).
 
-> **Draft for 0.1.0.** This file lists the donor projects named in the build
-> specification. The final list keeps only sources that were actually used and
-> is assembled from the per-file attribution logs of the build
-> (`.build/B*-attributions.md`). Until then, a donor listed here is a planned
-> source, not a confirmed one.
+> **0.1.0.** Per-file entries in "Detailed attribution by file" come from the
+> build logs and match the `files_used` field in `source.lock.json`. Projects
+> credited for ideas only have no file-level entry: nothing from them was
+> copied.
 
 This pack contains original work and material adapted from the open-source
 projects listed below. Each adapted file carries a header naming its source,
