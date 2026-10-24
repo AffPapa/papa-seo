@@ -1,0 +1,30 @@
+{
+  "name": "papa-seo evals fixture",
+  "version": "0.1.0",
+  "base_url": "https://fixture.papa-seo.test",
+  "note": "Статический сайт. Домен .test не резолвится, в сеть за ним ходить не нужно. Ниже — ответы сервера, которые нельзя увидеть по файлам: статусы, редиректы, заголовки. Считать их наблюдаемыми фактами, как если бы они были получены HEAD/GET-запросом 2026-10-24T09:00:00Z.",
+  "default_headers": {
+    "content-type": "text/html; charset=utf-8",
+    "strict-transport-security": "max-age=31536000"
+  },
+  "responses": [
+    { "path": "/", "status": 200, "file": "site/index.html" },
+    { "path": "/index.html", "status": 301, "location": "/" },
+    { "path": "/services.html", "status": 200, "file": "site/services.html" },
+    { "path": "/guide.html", "status": 200, "file": "site/guide.html" },
+    { "path": "/product.html", "status": 200, "file": "site/product.html" },
+    { "path": "/faq.html", "status": 200, "file": "site/faq.html" },
+    { "path": "/calculator.html", "status": 200, "file": "site/calculator.html" },
+    { "path": "/contacts.html", "status": 200, "file": "site/contacts.html" },
+    { "path": "/en/", "status": 200, "file": "site/en/index.html" },
+    { "path": "/contact", "status": 301, "location": "/contact/" },
+    { "path": "/contact/", "status": 301, "location": "/contacts" },
+    { "path": "/contacts", "status": 301, "location": "/contacts.html" },
+    { "path": "/blog/old-guide/", "status": 404 },
+    { "path": "/delivery.html", "status": 404 },
+    { "path": "/robots.txt", "status": 200, "file": "site/robots.txt", "headers": { "content-type": "text/plain; charset=utf-8" } },
+    { "path": "/sitemap.xml", "status": 200, "file": "site/sitemap.xml", "headers": { "content-type": "application/xml" } },
+    { "path": "/img/*", "status": 200, "note": "файлов изображений в фикстуре нет; отдаются 200 с правильным content-type" }
+  ],
+  "unlisted_paths": "404"
+}

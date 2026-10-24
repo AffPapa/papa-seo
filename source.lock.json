@@ -1,0 +1,665 @@
+{
+  "package": "papa-seo",
+  "version": "0.1.0",
+  "checked_at": "2026-10-24",
+  "fields": {
+    "use": "adapt — формулировки можно адаптировать с шапкой Adapted from; ideas — только идеи своими словами",
+    "spec_modules": "модули из SPEC §4, где донор назван основой; фактическое использование — files_used",
+    "files_used": "null до сборки модулей; заполняется из .build/B*-attributions.md",
+    "commit_source": "donor-shas.tsv — зафиксированный коммит проверки; local-clone-HEAD — HEAD локального клона; null — снимок без git-метаданных"
+  },
+  "donors": [
+    {
+      "repo": "AgriciDaniel/claude-seo",
+      "url": "https://github.com/AgriciDaniel/claude-seo",
+      "commit": "6be93f45064ffbadced572b5d5c95f55fd263af0",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 agricidaniel",
+      "use": "adapt",
+      "spec_modules": [
+        "tech-audit",
+        "on-page",
+        "schema",
+        "performance",
+        "geo",
+        "semantics",
+        "serp",
+        "backlinks",
+        "ecommerce",
+        "international",
+        "programmatic",
+        "measure"
+      ],
+      "license_file": "licenses/AgriciDaniel__claude-seo.txt",
+      "files_used": [
+        "modules/backlinks.md",
+        "modules/ecommerce.md",
+        "modules/geo.md",
+        "modules/international.md",
+        "modules/measure.md",
+        "modules/on-page.md",
+        "modules/performance.md",
+        "modules/programmatic.md",
+        "modules/schema.md",
+        "modules/semantics.md",
+        "modules/serp.md",
+        "modules/tech-audit.md"
+      ],
+      "note": "skills/seo-flow и agents/seo-flow.md — CC BY 4.0 (Daniel Agrici), не брать без отдельной атрибуции"
+    },
+    {
+      "repo": "calm-north/seojuice-skills",
+      "url": "https://github.com/calm-north/seojuice-skills",
+      "commit": "c1f633bea512365ba04477076369e418ecc82ffd",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 SEOJuice, Calm North Labs UAB",
+      "use": "adapt",
+      "spec_modules": [
+        "tech-audit",
+        "serp",
+        "migration"
+      ],
+      "license_file": "licenses/calm-north__seojuice-skills.txt",
+      "files_used": [
+        "modules/links.md",
+        "modules/migration.md",
+        "modules/serp.md",
+        "modules/tech-audit.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "seo-skills/seo-audit-skill",
+      "url": "https://github.com/seo-skills/seo-audit-skill",
+      "commit": "fac4b75f2059b6d74bb05a865fe1b0ca5de3ba66",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2024-present SEOmator",
+      "use": "adapt",
+      "spec_modules": [
+        "tech-audit",
+        "indexing"
+      ],
+      "license_file": "licenses/seo-skills__seo-audit-skill.txt",
+      "files_used": [
+        "modules/tech-audit.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "seo-skills/geo-audit-skill",
+      "url": "https://github.com/seo-skills/geo-audit-skill",
+      "commit": "17fd0d29d41317c07e6d3b64daa99756ddcabc46",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 SEOmator",
+      "use": "adapt",
+      "spec_modules": [
+        "indexing",
+        "geo"
+      ],
+      "license_file": "licenses/seo-skills__geo-audit-skill.txt",
+      "files_used": [
+        "modules/geo.md",
+        "modules/indexing.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "mykpono/ultimate-seo-geo",
+      "url": "https://github.com/mykpono/ultimate-seo-geo",
+      "commit": "c92fdbaf1ddf7a0ef830952f73f913b08185a2f2",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Myk Pono",
+      "use": "adapt",
+      "spec_modules": [
+        "indexing",
+        "links",
+        "logs"
+      ],
+      "license_file": "licenses/mykpono__ultimate-seo-geo.txt",
+      "files_used": [
+        "modules/indexing.md",
+        "modules/links.md",
+        "modules/logs.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "Bhanunamikaze/Agentic-SEO-Skill",
+      "url": "https://github.com/Bhanunamikaze/Agentic-SEO-Skill",
+      "commit": "445c46c268d947fac25c4b57d38aaf723129fe62",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Bhanu Namikaze; 2026 agricidaniel",
+      "use": "adapt",
+      "spec_modules": [
+        "indexing",
+        "links",
+        "international",
+        "logs"
+      ],
+      "license_file": "licenses/Bhanunamikaze__Agentic-SEO-Skill.txt",
+      "files_used": [
+        "modules/ecommerce.md",
+        "modules/indexing.md",
+        "modules/international.md",
+        "modules/links.md",
+        "modules/logs.md"
+      ],
+      "note": "в LICENSE два правообладателя: производная claude-seo"
+    },
+    {
+      "repo": "kostja94/marketing-skills",
+      "url": "https://github.com/kostja94/marketing-skills",
+      "commit": "b59bbdedd9b203ff731445e37dc11c3a14256547",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2025 kostja94",
+      "use": "adapt",
+      "spec_modules": [
+        "indexing",
+        "yandex",
+        "eeat"
+      ],
+      "license_file": "licenses/kostja94__marketing-skills.txt",
+      "files_used": [
+        "modules/eeat.md",
+        "modules/indexing.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "iannuttall/seo-graph",
+      "url": "https://github.com/iannuttall/seo-graph",
+      "commit": null,
+      "commit_source": null,
+      "license": "MIT",
+      "holder": "2026 Ian Nuttall",
+      "use": "adapt",
+      "spec_modules": [
+        "schema"
+      ],
+      "license_file": "licenses/iannuttall__seo-graph.txt",
+      "files_used": [],
+      "note": "NOTICE: часть кода из jdevalk/seo-graph (MIT, Joost de Valk) — атрибутировать обоих"
+    },
+    {
+      "repo": "iannuttall/seo",
+      "url": "https://github.com/iannuttall/seo",
+      "commit": "69a8ea2f86909a4054ba7bc72eadd9fe86053407",
+      "commit_source": "donor-shas.tsv",
+      "license": "Apache-2.0",
+      "holder": "2026 Ian Nuttall",
+      "use": "adapt",
+      "spec_modules": [
+        "measure"
+      ],
+      "license_file": "licenses/iannuttall__seo.txt",
+      "files_used": [
+        "modules/measure.md"
+      ],
+      "note": "NOTICE нет; TRADEMARKS.md — имя, слоган и лого проекта не использовать"
+    },
+    {
+      "repo": "addyosmani/web-quality-skills",
+      "url": "https://github.com/addyosmani/web-quality-skills",
+      "commit": "afa8da942115f2961fdbfa80807ea0b232ff6c00",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Addy Osmani",
+      "use": "adapt",
+      "spec_modules": [
+        "performance"
+      ],
+      "license_file": "licenses/addyosmani__web-quality-skills.txt",
+      "files_used": [
+        "modules/performance.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "lionkiii/claude-seo-skills",
+      "url": "https://github.com/lionkiii/claude-seo-skills",
+      "commit": "e8347fcedd21cf4fbb9f1edeae21f876f4963a7b",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Aashish",
+      "use": "adapt",
+      "spec_modules": [
+        "geo",
+        "eeat"
+      ],
+      "license_file": "licenses/lionkiii__claude-seo-skills.txt",
+      "files_used": [
+        "modules/eeat.md",
+        "modules/geo.md"
+      ],
+      "note": "SPEC §2.8 относит репозиторий к клонам claude-seo; брать только оригинальные части (seo-ai-optimization), остальное — у первоисточника"
+    },
+    {
+      "repo": "artwist-polyakov/polyakov-claude-skills",
+      "url": "https://github.com/artwist-polyakov/polyakov-claude-skills",
+      "commit": "197190a21d51e8d3aa4d13d0e35c25d83dd1f20e",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2025 Aleksandr Poliakov",
+      "use": "adapt",
+      "spec_modules": [
+        "yandex"
+      ],
+      "license_file": "licenses/artwist-polyakov__polyakov-claude-skills.txt",
+      "files_used": [
+        "modules/semantics.md",
+        "modules/yandex.md",
+        "references/yandex.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "Horosheff/google-yandex-seo-skill",
+      "url": "https://github.com/Horosheff/google-yandex-seo-skill",
+      "commit": "bdd76f94eeae739ed105114117f350c7f9c41ecb",
+      "commit_source": "local-clone-HEAD",
+      "license": "MIT",
+      "holder": "2026 Ertugrul Akben",
+      "use": "ideas",
+      "spec_modules": [
+        "yandex"
+      ],
+      "license_file": "licenses/Horosheff__google-yandex-seo-skill.txt",
+      "files_used": [],
+      "note": "правообладатель в LICENSE не совпадает с владельцем репозитория; коммит — HEAD локального клона"
+    },
+    {
+      "repo": "inhouseseo/superseo-skills",
+      "url": "https://github.com/inhouseseo/superseo-skills",
+      "commit": "9cf22cc065a294bf0077ea6af6b4ea0eb7f89cdc",
+      "commit_source": "donor-shas.tsv",
+      "license": "Apache-2.0",
+      "holder": "2026 InhouseSEO",
+      "use": "adapt",
+      "spec_modules": [
+        "eeat",
+        "brief",
+        "write",
+        "deai",
+        "factcheck"
+      ],
+      "license_file": "licenses/inhouseseo__superseo-skills.txt",
+      "files_used": [
+        "modules/brief.md",
+        "modules/deai.md",
+        "modules/factcheck.md",
+        "modules/write.md",
+        "references/page-types.md"
+      ],
+      "note": "NOTICE обязан ехать с производными (Apache-2.0 §4(d))"
+    },
+    {
+      "repo": "nowork-studio/notfair-plugin",
+      "url": "https://github.com/nowork-studio/notfair-plugin",
+      "commit": "ed835f273dce03a451c13fa0cb67305ae58ecb05",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Toprank Contributors",
+      "use": "adapt",
+      "spec_modules": [
+        "backlinks"
+      ],
+      "license_file": "licenses/nowork-studio__notfair-plugin.txt",
+      "files_used": [
+        "modules/backlinks.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "garrettjsmith/localseoskills",
+      "url": "https://github.com/garrettjsmith/localseoskills",
+      "commit": "405ce209775f8cb8f9dbaa511656594bb682cf9f",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Garrett Smith / GMB Gorilla",
+      "use": "adapt",
+      "spec_modules": [
+        "local"
+      ],
+      "license_file": "licenses/garrettjsmith__localseoskills.txt",
+      "files_used": [
+        "modules/local.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "MYehia565/google-seo-agent-skills",
+      "url": "https://github.com/MYehia565/google-seo-agent-skills",
+      "commit": "5336bcb42fd44824c4be28223cbb6105346125e1",
+      "commit_source": "local-clone-HEAD",
+      "license": "MIT",
+      "holder": "2026 MYehia565",
+      "use": "ideas",
+      "spec_modules": [
+        "ecommerce"
+      ],
+      "license_file": "licenses/MYehia565__google-seo-agent-skills.txt",
+      "files_used": [],
+      "note": "коммит — HEAD локального клона"
+    },
+    {
+      "repo": "AgriciDaniel/claude-blog",
+      "url": "https://github.com/AgriciDaniel/claude-blog",
+      "commit": "354442348815a7f0327077ad89af2c43cf4b4ab4",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2025-2026 AgriciDaniel",
+      "use": "adapt",
+      "spec_modules": [
+        "write",
+        "voice",
+        "factcheck"
+      ],
+      "license_file": "licenses/AgriciDaniel__claude-blog.txt",
+      "files_used": [
+        "modules/factcheck.md",
+        "modules/voice.md",
+        "modules/write.md"
+      ],
+      "note": "brain/ — All rights reserved, не брать; файлы из pbakaus/impeccable (Apache-2.0) и FLOW (CC BY 4.0) — только с их атрибуцией"
+    },
+    {
+      "repo": "coreyhaines31/marketingskills",
+      "url": "https://github.com/coreyhaines31/marketingskills",
+      "commit": "e85f3cbc2e4a79bf33b2a12e9bdd9087d414735b",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2025 Corey Haines",
+      "use": "adapt",
+      "spec_modules": [
+        "edit",
+        "landing"
+      ],
+      "license_file": "licenses/coreyhaines31__marketingskills.txt",
+      "files_used": [
+        "modules/edit.md",
+        "modules/landing.md"
+      ],
+      "note": "первоисточник; копии в других репозиториях не использовать"
+    },
+    {
+      "repo": "coleschaffer/copywritingskills-rmbc",
+      "url": "https://github.com/coleschaffer/copywritingskills-rmbc",
+      "commit": "8327d49b8232a85b39efb4dbd5b9855b5de51e68",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Stefan Georgi",
+      "use": "adapt",
+      "spec_modules": [
+        "edit"
+      ],
+      "license_file": "licenses/coleschaffer__copywritingskills-rmbc.txt",
+      "files_used": [
+        "modules/edit.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "Nanako0129/sepia",
+      "url": "https://github.com/Nanako0129/sepia",
+      "commit": "fb06be76abeae7dd606960a32f2b10c1d1798e0d",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Nanako Tsai",
+      "use": "adapt",
+      "spec_modules": [
+        "deai",
+        "voice"
+      ],
+      "license_file": "licenses/Nanako0129__sepia.txt",
+      "files_used": [
+        "modules/deai.md",
+        "modules/edit.md",
+        "modules/voice.md"
+      ],
+      "note": null
+    },
+    {
+      "repo": "ilyautov/humanizer-ru",
+      "url": "https://github.com/ilyautov/humanizer-ru",
+      "commit": "3621b1ca6b9a2f84f28f692222470dc25706255d",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Ilya Utov",
+      "use": "adapt",
+      "spec_modules": [
+        "deai",
+        "text-metrics"
+      ],
+      "license_file": "licenses/ilyautov__humanizer-ru.txt",
+      "files_used": [
+        "modules/deai.md",
+        "modules/factcheck.md",
+        "references/ru-style.md",
+        "scripts/factdiff.py"
+      ],
+      "note": "шрифты в docs/ — OFL, не брать"
+    },
+    {
+      "repo": "blader/humanizer",
+      "url": "https://github.com/blader/humanizer",
+      "commit": "8c307f367c91bd974002f10f2be2965d642c13df",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2025 Siqi Chen",
+      "use": "adapt",
+      "spec_modules": [
+        "deai"
+      ],
+      "license_file": "licenses/blader__humanizer.txt",
+      "files_used": [
+        "modules/deai.md"
+      ],
+      "note": "каталог паттернов восходит к Wikipedia «Signs of AI writing» (CC BY-SA 4.0): формулировки и примеры не переносить"
+    },
+    {
+      "repo": "robpalmer99/claude-code-copywriting-skills",
+      "url": "https://github.com/robpalmer99/claude-code-copywriting-skills",
+      "commit": "7dbfd61e0f283ca09c20b3eca3657365e00e991d",
+      "commit_source": "donor-shas.tsv",
+      "license": "CC-BY-4.0",
+      "holder": "2026 Rob Palmer",
+      "use": "adapt",
+      "spec_modules": [
+        "landing"
+      ],
+      "license_file": "licenses/robpalmer99__claude-code-copywriting-skills.txt",
+      "files_used": [
+        "modules/landing.md"
+      ],
+      "note": "атрибуция: Rob Palmer — https://robpalmer.com/blog/claude-code-copywriting-skills; ссылка на лицензию и пометка изменений обязательны"
+    },
+    {
+      "repo": "every-app/open-seo",
+      "url": "https://github.com/every-app/open-seo",
+      "commit": "2d8236a4fd5d799bf5c089187d0131f4dac4f38c",
+      "commit_source": "donor-shas.tsv",
+      "license": "MIT",
+      "holder": "2026 Ben Senescu",
+      "use": "adapt",
+      "spec_modules": [
+        "report"
+      ],
+      "license_file": "licenses/every-app__open-seo.txt",
+      "files_used": [
+        "modules/report.md"
+      ],
+      "note": "web/content/legal/* — All rights reserved, не брать"
+    },
+    {
+      "repo": "Illyism/seo-skills",
+      "url": "https://github.com/Illyism/seo-skills",
+      "commit": "a47acc9d28ceebe5d4845cda29113a6c07781bca",
+      "commit_source": "local-clone-HEAD",
+      "license": "MIT (declared in README, no LICENSE file)",
+      "holder": "Ilias Ism",
+      "use": "ideas",
+      "spec_modules": [
+        "headlines"
+      ],
+      "license_file": null,
+      "files_used": [
+        "modules/headlines.md"
+      ],
+      "note": "README:65–67 «MIT, by Ilias Ism»"
+    },
+    {
+      "repo": "yabasha/copywrite-skill",
+      "url": "https://github.com/yabasha/copywrite-skill",
+      "commit": null,
+      "commit_source": null,
+      "license": "MIT (declared in README, no LICENSE file)",
+      "holder": "yabasha (account owner; holder not named)",
+      "use": "ideas",
+      "spec_modules": [
+        "headlines"
+      ],
+      "license_file": null,
+      "files_used": [],
+      "note": "README:161 «MIT»"
+    },
+    {
+      "repo": "Yaroslavle/seo-content-writer-claude-skill",
+      "url": "https://github.com/Yaroslavle/seo-content-writer-claude-skill",
+      "commit": null,
+      "commit_source": null,
+      "license": "MIT (declared in README, no LICENSE file)",
+      "holder": "Yaroslavle (account owner; holder not named)",
+      "use": "ideas",
+      "spec_modules": [
+        "brief"
+      ],
+      "license_file": null,
+      "files_used": [],
+      "note": "README:128"
+    },
+    {
+      "repo": "alenazaharovaux/share",
+      "url": "https://github.com/alenazaharovaux/share",
+      "commit": null,
+      "commit_source": null,
+      "license": "NOASSERTION",
+      "holder": "alenazaharovaux",
+      "use": "ideas",
+      "spec_modules": [
+        "brief"
+      ],
+      "license_file": null,
+      "files_used": [],
+      "note": "writing-guru — по «Периодической таблице нарративов» А. Попова, лицензия неизвестна: только идеи"
+    },
+    {
+      "repo": "milcheliquids-ship-it/seo-text-skill",
+      "url": "https://github.com/milcheliquids-ship-it/seo-text-skill",
+      "commit": null,
+      "commit_source": null,
+      "license": "NONE",
+      "holder": null,
+      "use": "ideas",
+      "spec_modules": [
+        "brief",
+        "text-metrics"
+      ],
+      "license_file": null,
+      "files_used": [],
+      "note": "лицензии нет: только идеи своими словами"
+    },
+    {
+      "repo": "mazamaka/seo-skills-claude-code",
+      "url": "https://github.com/mazamaka/seo-skills-claude-code",
+      "commit": "5cec59e70d896f9988d9ace9d999c9e3b56638a6",
+      "commit_source": "local-clone-HEAD",
+      "license": "NONE",
+      "holder": null,
+      "use": "ideas",
+      "spec_modules": [
+        "semantics"
+      ],
+      "license_file": null,
+      "files_used": [],
+      "note": "лицензии нет: только идеи своими словами"
+    },
+    {
+      "repo": "affilino/ecommerce-seo-audit-skill",
+      "url": "https://github.com/affilino/ecommerce-seo-audit-skill",
+      "commit": "76f313d28600eb5008604dc8ff15c7d2387a5159",
+      "commit_source": "local-clone-HEAD",
+      "license": "LicenseRef-affilino-All-rights-reserved",
+      "holder": "2026 Affilino NZ",
+      "use": "ideas",
+      "spec_modules": [
+        "ecommerce"
+      ],
+      "license_file": null,
+      "files_used": [],
+      "note": "All rights reserved, личное использование: ни строки текста, только идеи"
+    },
+    {
+      "repo": "Aboudjem/humanizer-skill",
+      "url": "https://github.com/Aboudjem/humanizer-skill",
+      "commit": "a58df065367550b6ce40ff3f648335018d8e0589",
+      "commit_source": "download",
+      "license": "MIT",
+      "holder": "2026 Adam Boudjemaa",
+      "use": "ideas",
+      "spec_modules": [],
+      "license_file": "licenses/Aboudjem__humanizer-skill.txt",
+      "files_used": [
+        "scripts/factdiff.py"
+      ]
+    },
+    {
+      "repo": "flaqai/Awesome_SEO_Writing_Skill",
+      "url": "https://github.com/flaqai/Awesome_SEO_Writing_Skill",
+      "commit": "7d30056b47534d6d31d93e74d788268a788dac1f",
+      "commit_source": "download",
+      "license": "MIT",
+      "holder": "2026 Flaq AI",
+      "use": "ideas",
+      "spec_modules": [],
+      "license_file": "licenses/flaqai__Awesome_SEO_Writing_Skill.txt",
+      "files_used": [
+        "modules/brief.md"
+      ]
+    },
+    {
+      "repo": "smixs/humanizer-ru",
+      "url": "https://github.com/smixs/humanizer-ru",
+      "commit": "ff990df404f78fb1a43fc574a725490bd1be8070",
+      "commit_source": "download",
+      "license": "MIT",
+      "holder": "2026 Serge Shima",
+      "use": "ideas",
+      "spec_modules": [],
+      "license_file": "licenses/smixs__humanizer-ru.txt",
+      "files_used": [
+        "scripts/deai_scan.py"
+      ]
+    },
+    {
+      "repo": "BrianRWagner/ai-marketing-claude-code-skills",
+      "url": "https://github.com/BrianRWagner/ai-marketing-claude-code-skills",
+      "commit": null,
+      "commit_source": "download",
+      "license": "MIT (declared in README, no LICENSE file)",
+      "holder": null,
+      "use": "ideas",
+      "spec_modules": [],
+      "license_file": null,
+      "files_used": [
+        "modules/voice.md"
+      ]
+    }
+  ]
+}

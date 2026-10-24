@@ -1,0 +1,21 @@
+# sample roster in the expected YAML subset
+version: 1
+bots:
+  - name: GPTBot
+    group: training
+    vendor: OpenAI
+    doc: "https://platform.openai.com/docs/bots"   # comment after value
+  - name: YandexAdditional
+    group: ai_answers
+    vendor: Yandex
+    respects_star: false
+    notes: >
+      Токен для ответов
+      YandexGPT.
+  - name: 'Claude-User'
+    group: user_fetch
+    vendor: Anthropic
+    doc: null
+not_included:
+  - name: FakeBot
+    reason: no docs

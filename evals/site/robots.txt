@@ -1,0 +1,21 @@
+# Учебный сайт papa-seo evals
+
+User-agent: Googlebot
+Disallow: /search
+Disallow: /cart/
+
+User-agent: Yandex
+Disallow: /search
+Disallow: /cart/
+Clean-param: utm_source&utm_medium&utm_campaign /
+
+User-agent: Bingbot
+Disallow: /search
+Disallow: /cart/
+
+# Всех остальных закрываем целиком,
+# в том числе нейроответы Яндекса (YandexAdditional) и ИИ-ботов.
+User-agent: *
+Disallow: /
+
+Sitemap: https://fixture.papa-seo.test/sitemap.xml

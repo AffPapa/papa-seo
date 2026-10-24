@@ -1,0 +1,18 @@
+# robots for example.ru
+User-agent: *
+Disallow: /admin
+Allow: /admin/public
+Disallow: /*?sort=
+Clean-param: utm_source&utm_medium&utm_campaign /catalog/
+Clean-param: sid
+Crawl-delay: 3
+
+User-agent: Yandex
+Disallow: /private/
+Host: https://example.ru
+
+User-agent: GPTBot
+Disallow: /
+
+Sitemap: https://example.ru/sitemap.xml
+Sitemap: /relative-sitemap.xml

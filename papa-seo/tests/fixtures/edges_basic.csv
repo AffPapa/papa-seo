@@ -1,0 +1,11 @@
+from,to,anchor,region
+https://example.com/,https://example.com/a,Раздел A,nav
+https://example.com/,https://example.com/b,Раздел B,nav
+https://example.com/a,https://example.com/c,Статья C,main
+https://example.com/b,https://example.com/c,статья,main
+https://example.com/c,https://example.com/d,,footer
+https://example.com/c,https://other.org/x,внешняя,main
+https://example.com/orphan,https://example.com/,домой,nav
+https://example.com/a,https://example.com/a,сама на себя,main
+https://example.com/a,https://example.com/c,Статья C,main
+not a url,https://example.com/a,x,main

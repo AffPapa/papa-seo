@@ -1,0 +1,6 @@
+search:
+  - name: OAI-SearchBot
+    vendor: OpenAI
+training:
+  - name: ClaudeBot
+    vendor: Anthropic

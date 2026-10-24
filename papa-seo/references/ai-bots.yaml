@@ -1,0 +1,292 @@
+# Ростер ботов поиска, AI-поиска, обучения и пользовательских запросов.
+# Проверено по документации вендоров 24.10.2026. Копия с теми же данными — ai-bots.json.
+#
+# Формат простой: список записей, у записи только скаляры и списки в квадратных скобках.
+# Без якорей, без многострочных значений, без двоеточия с пробелом внутри значения.
+#
+# group:
+#   search_classic — обычный поиск (индекс, выдача)
+#   search_ai — показ и цитирование в AI-ответах поиска; сюда же токены-переключатели для AI-ответов
+#   training — сбор или разрешение использовать контент для обучения моделей
+#   user_fetch — загрузка страницы по действию пользователя, не обход
+# obeys_robots: true — соблюдает robots.txt; false — как правило не соблюдает; partial — вендор пишет «может не применяться» или есть исключения
+# respects_star: true — учитывает группу User-agent * при отсутствии своей группы; false — правила для * на него не действуют, писать его явно; null — не применимо
+# token_only: true — сам не ходит, это только токен-переключатель в robots.txt (у остальных поле опущено)
+# verify: как проверить подлинность (rdns домены или ссылка на список IP); none — способа нет или не нужен
+
+bots:
+  - name: Googlebot
+    tokens: [Googlebot, Googlebot-Image, Googlebot-Video, Googlebot-News, Storebot-Google]
+    group: search_classic
+    vendor: Google
+    obeys_robots: true
+    respects_star: true
+    effect: Поиск Google, Discover и функции Поиска, включая AI Overviews и AI Mode; -Image и -Video отвечают за картинки и видео, -News за Google Новости, Storebot за Google Shopping. Закрыть Googlebot значит выпасть из Поиска и из AI-функций Google
+    verify: rdns googlebot.com google.com googleusercontent.com
+    doc: https://developers.google.com/search/docs/crawling-indexing/google-common-crawlers
+    checked: 2026-10-24
+  - name: Bingbot
+    tokens: [bingbot]
+    group: search_classic
+    vendor: Microsoft
+    obeys_robots: true
+    respects_star: true
+    effect: индекс Bing. Официальную страницу о краулерах в этом заходе прочитать не удалось, назначение и поведение взяты из общеизвестного, перепроверить перед цитированием
+    verify: rdns search.msn.com
+    doc: https://www.bing.com/webmasters/help/which-crawlers-does-bing-use-8c184ec0
+    checked: 2026-10-24
+  - name: Applebot
+    tokens: [Applebot]
+    group: search_classic
+    vendor: Apple
+    obeys_robots: true
+    respects_star: true
+    effect: поиск в Spotlight, Siri и Safari; Apple пишет, что данные могут идти и на обучение и в контекст AI-ответов. Если для Applebot нет своей группы, но есть группа Googlebot, он следует правилам Googlebot. Crawl-delay игнорирует
+    verify: rdns applebot.apple.com
+    doc: https://support.apple.com/en-us/119829
+    checked: 2026-10-24
+  - name: YandexBot
+    tokens: [YandexBot, Yandex]
+    group: search_classic
+    vendor: Yandex
+    obeys_robots: true
+    respects_star: true
+    effect: основной индексирующий робот Яндекса. Если в файле есть группа Yandex, группа * для роботов Яндекса не используется; если есть группа YandexBot, не используются ни Yandex, ни *
+    verify: rdns yandex.ru yandex.net yandex.com
+    doc: https://yandex.ru/support/webmaster/ru/robot-workings/check-yandex-robots
+    checked: 2026-10-24
+  - name: YandexImages
+    tokens: [YandexImages]
+    group: search_classic
+    vendor: Yandex
+    obeys_robots: true
+    respects_star: true
+    effect: индексация картинок для Яндекс Картинок
+    verify: rdns yandex.ru yandex.net yandex.com
+    doc: https://yandex.ru/support/webmaster/ru/robot-workings/check-yandex-robots
+    checked: 2026-10-24
+  - name: YandexRenderResourcesBot
+    tokens: [YandexRenderResourcesBot]
+    group: search_classic
+    vendor: Yandex
+    obeys_robots: partial
+    respects_star: false
+    effect: грузит ресурсы для рендеринга страниц с JavaScript; игнорирует robots.txt для ресурсов, если сама HTML-страница доступна роботу Яндекса
+    verify: rdns yandex.ru yandex.net yandex.com
+    doc: https://yandex.ru/support/webmaster/ru/robot-workings/check-yandex-robots
+    checked: 2026-10-24
+  - name: OAI-SearchBot
+    tokens: [OAI-SearchBot]
+    group: search_ai
+    vendor: OpenAI
+    obeys_robots: true
+    respects_star: true
+    effect: показ сайтов в поиске ChatGPT. Закрытый сайт не показывается в ответах ChatGPT search, но может появиться как навигационная ссылка. Изменение robots.txt подхватывается примерно за 24 часа
+    verify: https://openai.com/searchbot.json
+    doc: https://developers.openai.com/api/docs/bots
+    checked: 2026-10-24
+  - name: Claude-SearchBot
+    tokens: [Claude-SearchBot]
+    group: search_ai
+    vendor: Anthropic
+    obeys_robots: true
+    respects_star: true
+    effect: индексация для качества поисковых ответов Claude; блок может снизить видимость и точность в ответах с поиском. Блок нужен на каждом поддомене отдельно
+    verify: https://claude.com/crawling/bots.json
+    doc: https://support.claude.com/en/articles/8896518
+    checked: 2026-10-24
+  - name: PerplexityBot
+    tokens: [PerplexityBot]
+    group: search_ai
+    vendor: Perplexity
+    obeys_robots: true
+    respects_star: true
+    effect: индекс для показа и ссылок в ответах Perplexity; для обучения моделей не используется
+    verify: https://www.perplexity.com/perplexitybot.json
+    doc: https://docs.perplexity.ai/guides/bots
+    checked: 2026-10-24
+  - name: Meta-WebIndexer
+    tokens: [meta-webindexer]
+    group: search_ai
+    vendor: Meta
+    obeys_robots: true
+    respects_star: true
+    effect: качество поиска Meta AI; Meta пишет, что допуск помогает цитировать и ссылаться на сайт. robots.txt кэшируется до 24 часов
+    verify: none
+    doc: https://developers.facebook.com/docs/sharing/webmasters/web-crawlers
+    checked: 2026-10-24
+  - name: Amzn-SearchBot
+    tokens: [Amzn-SearchBot]
+    group: search_ai
+    vendor: Amazon
+    obeys_robots: true
+    respects_star: true
+    effect: поиск в продуктах Amazon, например Alexa; для обучения генеративных моделей не используется. Без своей группы следует правилам, данным другим поисковым ботам
+    verify: https://developer.amazon.com/amazonbot/searchbot-ip-addresses/
+    doc: https://developer.amazon.com/amazonbot
+    checked: 2026-10-24
+  - name: YandexAdditional
+    tokens: [YandexAdditional, YandexAdditionalBot]
+    group: search_ai
+    vendor: Yandex
+    obeys_robots: true
+    respects_star: false
+    token_only: true
+    effect: ограничивает показ контента страниц в быстрых ответах с YandexGPT и в ответах Алисы AI. Сам запросов не делает, действует на страницы, проиндексированные YandexBot. Правило для * и для Yandex на него не распространяется, нужна своя группа. Изменение учитывается за 2–14 дней
+    verify: none
+    doc: https://yandex.ru/support/webmaster/ru/adding-site/indexing-prohibition
+    checked: 2026-10-24
+  - name: GPTBot
+    tokens: [GPTBot]
+    group: training
+    vendor: OpenAI
+    obeys_robots: true
+    respects_star: true
+    effect: сбор контента, который может пойти на обучение моделей OpenAI. На показ в ChatGPT search не влияет, за него отвечает OAI-SearchBot
+    verify: https://openai.com/gptbot.json
+    doc: https://developers.openai.com/api/docs/bots
+    checked: 2026-10-24
+  - name: ClaudeBot
+    tokens: [ClaudeBot]
+    group: training
+    vendor: Anthropic
+    obeys_robots: true
+    respects_star: true
+    effect: сбор контента для разработки и обучения моделей Anthropic; блок исключает будущие материалы сайта из обучающих наборов. Поддерживает Crawl-delay
+    verify: https://claude.com/crawling/bots.json
+    doc: https://support.claude.com/en/articles/8896518
+    checked: 2026-10-24
+  - name: Google-Extended
+    tokens: [Google-Extended]
+    group: training
+    vendor: Google
+    obeys_robots: true
+    respects_star: true
+    token_only: true
+    effect: токен-переключатель без своего User-Agent. Управляет обучением будущих моделей Gemini и grounding в приложениях Gemini и Vertex AI. На попадание в Поиск, ранжирование, AI Overviews и AI Mode не влияет. Учёт группы * — по общему правилу RFC 9309, отдельно Google это не оговаривает
+    verify: none
+    doc: https://developers.google.com/search/docs/crawling-indexing/google-common-crawlers
+    checked: 2026-10-24
+  - name: Applebot-Extended
+    tokens: [Applebot-Extended]
+    group: training
+    vendor: Apple
+    obeys_robots: true
+    respects_star: true
+    token_only: true
+    effect: сам не ходит; запрещает использовать уже собранное Applebot для обучения генеративных моделей Apple. На показ в Spotlight, Siri и Safari не влияет
+    verify: none
+    doc: https://support.apple.com/en-us/119829
+    checked: 2026-10-24
+  - name: CCBot
+    tokens: [CCBot]
+    group: training
+    vendor: Common Crawl
+    obeys_robots: true
+    respects_star: true
+    effect: открытый архив веба Common Crawl; архив широко используют сторонние разработчики моделей, сама страница CCBot про обучение не пишет. Соблюдение robots.txt следует из инструкции по блоку, прямо не подтверждено
+    verify: rdns crawl.commoncrawl.org
+    doc: https://commoncrawl.org/ccbot
+    checked: 2026-10-24
+  - name: Meta-ExternalAgent
+    tokens: [meta-externalagent]
+    group: training
+    vendor: Meta
+    obeys_robots: true
+    respects_star: true
+    effect: обучение базовых моделей Meta или прямое индексирование контента для продуктов
+    verify: none
+    doc: https://developers.facebook.com/docs/sharing/webmasters/web-crawlers
+    checked: 2026-10-24
+  - name: Amazonbot
+    tokens: [Amazonbot]
+    group: training
+    vendor: Amazon
+    obeys_robots: true
+    respects_star: true
+    effect: улучшение продуктов Amazon; Amazon пишет, что данные могут идти на обучение AI-моделей. Crawl-delay не поддерживает
+    verify: https://developer.amazon.com/amazonbot/ip-addresses/
+    doc: https://developer.amazon.com/amazonbot
+    checked: 2026-10-24
+  - name: ChatGPT-User
+    tokens: [ChatGPT-User]
+    group: user_fetch
+    vendor: OpenAI
+    obeys_robots: partial
+    respects_star: null
+    effect: заходы по действию пользователя в ChatGPT, Custom GPTs и GPT Actions. OpenAI пишет, что robots.txt может не применяться. Не определяет попадание в ChatGPT search
+    verify: https://openai.com/chatgpt-user.json
+    doc: https://developers.openai.com/api/docs/bots
+    checked: 2026-10-24
+  - name: Claude-User
+    tokens: [Claude-User]
+    group: user_fetch
+    vendor: Anthropic
+    obeys_robots: true
+    respects_star: true
+    effect: загрузка страницы, когда пользователь Claude задаёт вопрос; блок не даст Claude прочитать сайт по запросу пользователя
+    verify: https://claude.com/crawling/bots.json
+    doc: https://support.claude.com/en/articles/8896518
+    checked: 2026-10-24
+  - name: Perplexity-User
+    tokens: [Perplexity-User]
+    group: user_fetch
+    vendor: Perplexity
+    obeys_robots: false
+    respects_star: null
+    effect: загрузка страниц по вопросу пользователя, чтобы дать ссылку на источник; robots.txt в целом игнорирует; для обучения не используется
+    verify: https://www.perplexity.com/perplexity-user.json
+    doc: https://docs.perplexity.ai/guides/bots
+    checked: 2026-10-24
+  - name: Google user-triggered fetchers
+    tokens: [Google-Agent, GoogleMessages, Google-GeminiNotebook, Google-Read-Aloud, Google-Pinpoint, FeedFetcher-Google]
+    group: user_fetch
+    vendor: Google
+    obeys_robots: false
+    respects_star: null
+    effect: загрузки по запросу пользователя (агенты Google, превью в сообщениях, источники Gemini Notebook, чтение вслух и др.). Google пишет, что они в целом игнорируют robots.txt; список не исчерпывающий. Старый токен Google-NotebookLM поддерживается до августа 2026
+    verify: rdns google.com googleusercontent.com
+    doc: https://developers.google.com/search/docs/crawling-indexing/google-user-triggered-fetchers
+    checked: 2026-10-24
+  - name: Meta-ExternalFetcher
+    tokens: [meta-externalfetcher]
+    group: user_fetch
+    vendor: Meta
+    obeys_robots: partial
+    respects_star: null
+    effect: загрузка отдельных ссылок по запросу пользователя, агентные функции Meta AI; может обходить robots.txt
+    verify: none
+    doc: https://developers.facebook.com/docs/sharing/webmasters/web-crawlers
+    checked: 2026-10-24
+  - name: Amzn-User
+    tokens: [Amzn-User]
+    group: user_fetch
+    vendor: Amazon
+    obeys_robots: partial
+    respects_star: null
+    effect: загрузки по действию пользователя, например ответы Alexa на свежие вопросы; может следовать не всем директивам robots.txt
+    verify: https://developer.amazon.com/amazonbot/live-ip-addresses/
+    doc: https://developer.amazon.com/amazonbot
+    checked: 2026-10-24
+
+not_included:
+  - name: GoogleOther
+    reason: универсальный краулер команд Google; по документации ни на какой продукт не влияет, на видимость в поиске и AI не действует
+  - name: Google-CloudVertexBot
+    reason: ходит только по заказу владельца сайта для агентов Vertex AI; на Поиск не влияет
+  - name: Google-InspectionTool
+    reason: инструменты проверки (Rich Results Test, проверка URL); на Поиск не влияет, закрывать нельзя, иначе сломается диагностика
+  - name: OAI-AdsBot
+    reason: проверяет только посадочные страницы, поданные как реклама в ChatGPT; к органической видимости отношения не имеет
+  - name: facebookexternalhit
+    reason: превью ссылок в продуктах Meta, не обход и не обучение; может обходить robots.txt при проверках безопасности
+  - name: YandexMetrika YandexDirect YaDirectFetcher YandexFavicons YandexDialogs и другие служебные роботы Яндекса
+    reason: служебные проверки и загрузки, на индекс и AI-ответы не влияют; правила для * и Yandex многие из них не учитывают (полный список в документации Яндекса)
+  - name: anthropic-ai Claude-Web
+    reason: в текущей статье Anthropic не перечислены; держать в robots.txt можно, но рассчитывать на них нельзя
+  - name: Bytespider cohere-ai Diffbot DuckAssistBot MistralAI-User PetalBot
+    reason: официальная документация вендора 24.10.2026 не проверялась; добавлять только после проверки первоисточника
+  - name: Bing Copilot и Microsoft Copilot
+    reason: отдельного токена robots.txt не найдено; данные идут из индекса Bing, управлять через bingbot
+  - name: llms.txt
+    reason: не бот и не директива robots.txt; Google Поиск его не использует, у Яндекса сведений о чтении llms.txt сайтов нет (см. yandex.md)
