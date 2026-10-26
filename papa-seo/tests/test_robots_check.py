@@ -378,6 +378,33 @@ class RosterTest(unittest.TestCase):
         names = {b["name"] for b in ry}
         self.assertIn("YandexAdditional", names)
 
+    def test_reference_roster_user_agents(self):
+        y = os.path.join(rc.REFERENCES_DIR, "ai-bots.yaml")
+        j = os.path.join(rc.REFERENCES_DIR, "ai-bots.json")
+        if not (os.path.isfile(y) and os.path.isfile(j)):
+            self.skipTest("reference roster not present")
+        ry, _, _ = rc.load_roster(y)
+        rj, _, _ = rc.load_roster(j)
+        uy = {b["name"]: (b.get("ua"), b.get("ua_checked")) for b in ry}
+        uj = {b["name"]: (b.get("ua"), b.get("ua_checked")) for b in rj}
+        self.assertEqual(uy, uj, "ua in ai-bots.yaml and ai-bots.json must match")
+        with_ua = {n: v for n, v in uy.items() if v[0]}
+        for must in ("Googlebot", "bingbot", "YandexBot", "GPTBot", "OAI-SearchBot", "ChatGPT-User",
+                     "PerplexityBot", "Perplexity-User", "Applebot"):
+            self.assertIn(must, with_ua)
+        for name, (ua, checked) in with_ua.items():
+            self.assertIn(name.lower(), ua.lower(), "UA must carry its own token")
+            self.assertRegex(checked or "", r"^\d{4}-\d{2}-\d{2}$")
+            builtin = http_safe.BOT_USER_AGENTS.get(name.lower())
+            if builtin:
+                self.assertEqual(builtin, ua, f"built-in UA for {name} drifted from the roster")
+        # ua belongs to the first token of a record only
+        self.assertNotIn("Googlebot-Image", with_ua)
+        self.assertNotIn("Yandex", with_ua)
+        # vendors that publish no full string / bots that send no requests carry no ua
+        for name in ("ClaudeBot", "Claude-User", "Claude-SearchBot", "YandexAdditional", "Google-Extended"):
+            self.assertNotIn(name, with_ua)
+
 
 if __name__ == "__main__":
     unittest.main()

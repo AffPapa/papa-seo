@@ -13,6 +13,9 @@
 # respects_star: true — учитывает группу User-agent * при отсутствии своей группы; false — правила для * на него не действуют, писать его явно; null — не применимо
 # token_only: true — сам не ходит, это только токен-переключатель в robots.txt (у остальных поле опущено)
 # verify: как проверить подлинность (rdns домены или ссылка на список IP); none — способа нет или не нужен
+# ua: полная строка User-Agent из документации вендора, её шлёт `http_safe.py fetch --ua-of <имя>` (проверка WAF/CDN).
+#   Относится к первому токену записи. ua_checked — дата сверки с документацией, ua_note — оговорки.
+#   Нет поля ua — вендор строку не публикует или бот сам не ходит; см. ua_note.
 
 bots:
   - name: Googlebot
@@ -25,6 +28,9 @@ bots:
     verify: rdns googlebot.com google.com googleusercontent.com
     doc: https://developers.google.com/search/docs/crawling-indexing/google-common-crawlers
     checked: 2026-10-24
+    ua: Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
+    ua_checked: 2026-10-26
+    ua_note: Googlebot Smartphone, основной для mobile-first; в документации версия Chrome записана как W.X.Y.Z, подставлена 131.0.0.0
   - name: Bingbot
     tokens: [bingbot]
     group: search_classic
@@ -35,6 +41,9 @@ bots:
     verify: rdns search.msn.com
     doc: https://www.bing.com/webmasters/help/which-crawlers-does-bing-use-8c184ec0
     checked: 2026-10-24
+    ua: Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm) Chrome/131.0.0.0 Safari/537.36
+    ua_checked: 2026-10-26
+    ua_note: десктопный вариант по объявлению Bing https://blogs.bing.com/webmaster/october-2019/Announcing-user-agent-change-for-Bing-crawler-bingbot (страница справки без JavaScript не читается); W.X.Y.Z там — версия Edge, подставлена 131.0.0.0
   - name: Applebot
     tokens: [Applebot]
     group: search_classic
@@ -45,6 +54,9 @@ bots:
     verify: rdns applebot.apple.com
     doc: https://support.apple.com/en-us/119829
     checked: 2026-10-24
+    ua: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15 (Applebot/0.1; +http://www.apple.com/go/applebot)
+    ua_checked: 2026-10-26
+    ua_note: десктопный пример из документации; Apple пишет, что версия браузера в строке меняется
   - name: YandexBot
     tokens: [YandexBot, Yandex]
     group: search_classic
@@ -55,6 +67,8 @@ bots:
     verify: rdns yandex.ru yandex.net yandex.com
     doc: https://yandex.ru/support/webmaster/ru/robot-workings/check-yandex-robots
     checked: 2026-10-24
+    ua: Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)
+    ua_checked: 2026-10-26
   - name: YandexImages
     tokens: [YandexImages]
     group: search_classic
@@ -65,6 +79,8 @@ bots:
     verify: rdns yandex.ru yandex.net yandex.com
     doc: https://yandex.ru/support/webmaster/ru/robot-workings/check-yandex-robots
     checked: 2026-10-24
+    ua: Mozilla/5.0 (compatible; YandexImages/3.0; +http://yandex.com/bots)
+    ua_checked: 2026-10-26
   - name: YandexRenderResourcesBot
     tokens: [YandexRenderResourcesBot]
     group: search_classic
@@ -75,6 +91,8 @@ bots:
     verify: rdns yandex.ru yandex.net yandex.com
     doc: https://yandex.ru/support/webmaster/ru/robot-workings/check-yandex-robots
     checked: 2026-10-24
+    ua: Mozilla/5.0 (compatible; YandexRenderResourcesBot/1.0; +http://yandex.com/bots)
+    ua_checked: 2026-10-26
   - name: OAI-SearchBot
     tokens: [OAI-SearchBot]
     group: search_ai
@@ -85,6 +103,9 @@ bots:
     verify: https://openai.com/searchbot.json
     doc: https://developers.openai.com/api/docs/bots
     checked: 2026-10-24
+    ua: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36; compatible; OAI-SearchBot/1.4; +https://openai.com/searchbot
+    ua_checked: 2026-10-26
+    ua_note: пример из документации, версия может меняться; при запросе robots.txt OpenAI добавляет в строку метку robots.txt
   - name: Claude-SearchBot
     tokens: [Claude-SearchBot]
     group: search_ai
@@ -95,6 +116,8 @@ bots:
     verify: https://claude.com/crawling/bots.json
     doc: https://support.claude.com/en/articles/8896518
     checked: 2026-10-24
+    ua_checked: 2026-10-26
+    ua_note: Anthropic публикует только токен robots.txt, полной строки в документации нет
   - name: PerplexityBot
     tokens: [PerplexityBot]
     group: search_ai
@@ -105,6 +128,8 @@ bots:
     verify: https://www.perplexity.com/perplexitybot.json
     doc: https://docs.perplexity.ai/guides/bots
     checked: 2026-10-24
+    ua: Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)
+    ua_checked: 2026-10-26
   - name: Meta-WebIndexer
     tokens: [meta-webindexer]
     group: search_ai
@@ -136,6 +161,8 @@ bots:
     verify: none
     doc: https://yandex.ru/support/webmaster/ru/adding-site/indexing-prohibition
     checked: 2026-10-24
+    ua_checked: 2026-10-26
+    ua_note: строки YandexAdditional/1.0 и YandexAdditionalBot/1.0 в списке Яндекса есть, но сам робот запросов не делает: для --ua-of не годится
   - name: GPTBot
     tokens: [GPTBot]
     group: training
@@ -146,6 +173,9 @@ bots:
     verify: https://openai.com/gptbot.json
     doc: https://developers.openai.com/api/docs/bots
     checked: 2026-10-24
+    ua: Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.4; +https://openai.com/gptbot
+    ua_checked: 2026-10-26
+    ua_note: пример из документации, версия может меняться
   - name: ClaudeBot
     tokens: [ClaudeBot]
     group: training
@@ -156,6 +186,8 @@ bots:
     verify: https://claude.com/crawling/bots.json
     doc: https://support.claude.com/en/articles/8896518
     checked: 2026-10-24
+    ua_checked: 2026-10-26
+    ua_note: Anthropic публикует только токен robots.txt, полной строки в документации нет
   - name: Google-Extended
     tokens: [Google-Extended]
     group: training
@@ -218,6 +250,8 @@ bots:
     verify: https://openai.com/chatgpt-user.json
     doc: https://developers.openai.com/api/docs/bots
     checked: 2026-10-24
+    ua: Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot
+    ua_checked: 2026-10-26
   - name: Claude-User
     tokens: [Claude-User]
     group: user_fetch
@@ -228,6 +262,8 @@ bots:
     verify: https://claude.com/crawling/bots.json
     doc: https://support.claude.com/en/articles/8896518
     checked: 2026-10-24
+    ua_checked: 2026-10-26
+    ua_note: Anthropic публикует только токен robots.txt, полной строки в документации нет
   - name: Perplexity-User
     tokens: [Perplexity-User]
     group: user_fetch
@@ -238,6 +274,8 @@ bots:
     verify: https://www.perplexity.com/perplexity-user.json
     doc: https://docs.perplexity.ai/guides/bots
     checked: 2026-10-24
+    ua: Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Perplexity-User/1.0; +https://perplexity.ai/perplexity-user)
+    ua_checked: 2026-10-26
   - name: Google user-triggered fetchers
     tokens: [Google-Agent, GoogleMessages, Google-GeminiNotebook, Google-Read-Aloud, Google-Pinpoint, FeedFetcher-Google]
     group: user_fetch

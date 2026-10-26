@@ -418,7 +418,7 @@ def _normalize_roster(items: list) -> list[dict]:
         if ignores is None and respects is False:
             ignores = True
         obeys = _tri(it.get("obeys_robots"))
-        for tok in tokens:
+        for pos, tok in enumerate(tokens):
             name = str(tok or "").strip()
             if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name) or name.lower() in seen:
                 continue
@@ -428,7 +428,9 @@ def _normalize_roster(items: list) -> list[dict]:
                 "doc": it.get("doc"), "token_only": bool(it.get("token_only")),
                 "ignores_star": bool(ignores) if ignores is not None else name.lower() in IGNORES_STAR_DEFAULT,
                 "obeys_robots": obeys if obeys is not None else True,
-                **({"ua": str(it["ua"])} if isinstance(it.get("ua"), str) and it.get("ua") else {}),
+                # `ua` belongs to the record's first token (Googlebot, not Googlebot-Image)
+                **({"ua": str(it["ua"]), "ua_checked": it.get("ua_checked")}
+                   if pos == 0 and isinstance(it.get("ua"), str) and it.get("ua") else {}),
             })
     return roster
 

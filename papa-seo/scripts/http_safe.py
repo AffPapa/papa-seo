@@ -55,7 +55,7 @@ try:  # POSIX advisory lock for the cross-process pause; absent on Windows
 except ImportError:  # pragma: no cover
     fcntl = None
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 USER_AGENT = "papa-seo/0.1 (+https://affpapa.org/papa-seo)"
 DEFAULT_DELAY = 2.0          # seconds between requests (SPEC §2 rule 3)
@@ -97,23 +97,31 @@ SAFE_HEADERS = frozenset({
     "set-cookie",
 })
 
-# Representative User-Agent strings from vendor docs, for `fetch --ua-of` (WAF/CDN checks only).
-# Token-only agents (Google-Extended, Applebot-Extended, YandexAdditional) send no requests: no UA.
+# User-Agent strings for `fetch --ua-of` (WAF/CDN checks only). Fallback: the roster field `ua` in
+# references/ai-bots.(json|yaml) wins. Checked against vendor docs 2026-10-26; where a doc writes the
+# Chrome/Edge version as W.X.Y.Z, 131.0.0.0 is substituted. Token-only agents (Google-Extended,
+# Applebot-Extended, YandexAdditional) send no requests: no UA.
 BOT_USER_AGENTS = {
-    "googlebot": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-    "bingbot": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+    "googlebot": "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) "
+                 "Chrome/131.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "bingbot": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm) "
+               "Chrome/131.0.0.0 Safari/537.36",
     "yandexbot": "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
-    "gptbot": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.1; +https://openai.com/gptbot)",
-    "oai-searchbot": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; "
-                     "+https://openai.com/searchbot",
+    "gptbot": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.4; +https://openai.com/gptbot",
+    "oai-searchbot": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+                     "Chrome/131.0.0.0 Safari/537.36; compatible; OAI-SearchBot/1.4; +https://openai.com/searchbot",
     "chatgpt-user": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; "
                     "+https://openai.com/bot",
+    # Anthropic publishes robots.txt tokens only, no full string: this one is the commonly reported log format.
     "claudebot": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)",
     "perplexitybot": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0; "
                      "+https://perplexity.ai/perplexitybot)",
-    "applebot": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/605.1.15 (KHTML, like Gecko) "
-                "Version/13.1.1 Safari/605.1.15 (Applebot/0.1; +http://www.apple.com/go/applebot)",
+    "perplexity-user": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Perplexity-User/1.0; "
+                       "+https://perplexity.ai/perplexity-user)",
+    "applebot": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                "Version/17.4 Safari/605.1.15 (Applebot/0.1; +http://www.apple.com/go/applebot)",
 }
+BOT_UA_NOT_FROM_DOCS = {"claudebot"}
 TOKEN_ONLY_AGENTS = {"google-extended", "applebot-extended", "yandexadditional", "yandexadditionalbot"}
 
 _EXTRA_HEADER_ALLOWLIST = {"accept", "accept-language", "if-modified-since", "if-none-match", "range"}
@@ -896,8 +904,8 @@ def check_delay(value: float) -> float:
     return value
 
 
-def resolve_bot_ua(name: str) -> tuple[str, str]:
-    """User-Agent for a known bot token: roster `ua` field first, then BOT_USER_AGENTS."""
+def resolve_bot_ua(name: str) -> tuple[str, str, str]:
+    """(name, User-Agent, source) for a known bot token: roster `ua` field first, then BOT_USER_AGENTS."""
     key = (name or "").strip().lower()
     if key in TOKEN_ONLY_AGENTS:
         raise CliError(f"{name} is a robots.txt token only and sends no requests: no User-Agent", "unknown_bot_ua")
@@ -906,11 +914,14 @@ def resolve_bot_ua(name: str) -> tuple[str, str]:
         roster, _, _ = robots_check.load_roster()
         for bot in roster:
             if bot["name"].lower() == key and bot.get("ua"):
-                return bot["name"], str(bot["ua"])
+                src = "roster: документация вендора" + (f", сверено {bot['ua_checked']}" if bot.get("ua_checked") else "")
+                return bot["name"], str(bot["ua"]), src
     except (ImportError, CliError):
         pass
     if key in BOT_USER_AGENTS:
-        return name, BOT_USER_AGENTS[key]
+        src = ("встроенная таблица: вендор полной строки не публикует, формат по логам сайтов"
+               if key in BOT_UA_NOT_FROM_DOCS else "встроенная таблица: документация вендора, сверено 2026-10-26")
+        return name, BOT_USER_AGENTS[key], src
     known = ", ".join(sorted(BOT_USER_AGENTS))
     raise CliError(f"no known User-Agent for {name!r}; known: {known}", "unknown_bot_ua")
 
@@ -944,9 +955,9 @@ def main(argv: list[str] | None = None) -> int:
                 safe_out_path(path)
         if args.out and args.save_body and os.path.abspath(args.out) == os.path.abspath(args.save_body):
             raise CliError("--out and --save-body must differ", "bad_arguments")
-        ua, as_bot = USER_AGENT, None
+        ua, as_bot, ua_source = USER_AGENT, None, None
         if args.ua_of:
-            as_bot, ua = resolve_bot_ua(args.ua_of)
+            as_bot, ua, ua_source = resolve_bot_ua(args.ua_of)
         fetcher = Fetcher(timeout=args.timeout, max_bytes=args.max_bytes, user_agent=ua,
                           state_dir=check_state_dir(args.state_dir))
         resp = fetcher.fetch(args.url, method="HEAD" if args.head else "GET")
@@ -954,6 +965,7 @@ def main(argv: list[str] | None = None) -> int:
         data["user_agent"] = ua
         if as_bot:
             data["as_bot"] = as_bot
+            data["ua_source"] = ua_source
             data["notes"].append(f"Запрос шёл с User-Agent бота {as_bot}: это проверка WAF/CDN, "
                                  f"а не настоящий визит бота (IP не его)")
         if fetcher.waited_s:

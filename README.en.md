@@ -536,7 +536,7 @@ Modules by group:
 
 The router loads only the module a request needs. Thresholds and dates live in one file, `references/facts-2026.md`, each with a check date and a link to the primary source. Findings follow `templates/finding.schema.json`: where the fact came from, when, the evidence snippet, status, search engine, the fix and how to verify it. Before it says "add X", the agent checks the live HTML to confirm X is really missing.
 
-[evals/](evals/README.md) holds a small site with ten planted defects, eight traps and two prompt-injection attacks, for comparing the same model with and without the skill. That comparison hasn't been run on models yet.
+[evals/](evals/README.md) holds a small site with ten planted defects, eight traps and two prompt-injection attacks, for comparing the same model with and without the skill. That comparison hasn't been run on models yet; what the scripts alone catch, without a model, is in [evals/RESULTS-scripts.md](evals/RESULTS-scripts.md) (Russian).
 
 ## Safety and limits
 

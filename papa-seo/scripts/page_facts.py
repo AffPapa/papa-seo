@@ -49,6 +49,13 @@ _HIDDEN_STYLE = re.compile(
     r"display:none|visibility:hidden|visibility:collapse|opacity:0(?:\.0+)?(?:;|$|!)|font-size:0"
     r"|(?:left|top|right|text-indent|margin-left):-\d{3,}|clip:rect\(0|clip-path:inset\(50%"
     r"|transform:scale\(0\)|max-height:0|height:0(?:px)?;.*overflow:hidden|width:0(?:px)?;height:0")
+# hidden navigation (mobile drawer, dropdown, duplicate menu): weak AI words there are menu labels
+# ("SEO-скил для ИИ-агентов"), not an address to a model. Strong matches are reported regardless.
+NAV_TAGS = {"nav", "menu"}
+NAV_ROLES = {"navigation", "menu", "menubar"}
+NAV_PARTS = {"nav", "navbar", "navigation", "menu", "mnav", "drawer", "offcanvas", "burger", "hamburger",
+             "sidenav", "megamenu", "submenu", "dropdown", "mobilemenu", "mmenu"}
+NAV_LINK_RATIO = 0.4
 _HEAD_TAGS = {"html", "head", "title", "meta", "link", "script", "style", "base", "noscript", "template"}
 APP_ROOT_IDS = {"root", "app", "__next", "__nuxt", "___gatsby", "svelte", "q-app", "react-root"}
 
@@ -85,6 +92,9 @@ _STRONG = [
     r"(?<!\w)" + _BOT_WORDS_RU + r"\s*[,:!]\s*(?:пожалуйста\s+)?" + _IMPER_RU + r"(?!\w)",
     r"(?<!\w)(?:прочитай|покажи|выведи|отправь|пришли|открой|раскрой|перешли|сообщи)\s+(?:\S+\s+){0,3}?" + _SECRETS_RU,
     r"(?:новые|следующие|дополнительные)\s+инструкци\w*\s*:",
+    # "Инструкция для ИИ-аудитора: …" — header addressed to a model, ends with a colon (a menu label does not)
+    r"(?<!\w)(?:инструкци|указани|примечани|сообщени|обращени|заметк)\w*\s+(?:для|к)\s+"
+    r"(?:ии(?:-\w+)?|нейросет\w*|ассистент\w*|агент\w*|модел\w*|chatgpt|claude|gpt|llm)\s*:",
     r"(?<!\w)(?:выполни|запусти)\s+(?:эту\s+|следующую\s+)?(?:команд|скрипт)\w*",
 ]
 _WEAK = [
@@ -252,13 +262,36 @@ def _hidden_reason(tag: str, attrs: dict) -> str | None:
     return None
 
 
+def _nav_signal(tag: str, attrs: dict) -> str | None:
+    """Why this element looks like navigation: tag, role, class/id part or data-* attribute name."""
+    if tag in NAV_TAGS:
+        return f"tag:{tag}"
+    role = (attrs.get("role") or "").strip().lower()
+    if role in NAV_ROLES:
+        return f"role:{role}"
+    for name in ("class", "id"):
+        for tok in _attr_tokens(attrs.get(name)):
+            parts = set(re.split(r"[_-]+", tok)) | {tok.replace("-", "").replace("_", "")}
+            hit = parts & NAV_PARTS
+            if hit:
+                return f"{name}:{tok}"
+    for name in attrs:
+        if name.startswith("data-") and set(re.split(r"[_-]+", name[5:])) & NAV_PARTS:
+            return f"attr:{name}"
+    return None
+
+
 class _Element:
-    __slots__ = ("tag", "region", "hidden", "buf", "line", "text_len")
+    __slots__ = ("tag", "region", "hidden", "buf", "line", "text_len", "nav", "el_id", "chars", "link_chars")
 
     def __init__(self, tag, region, hidden, line):
         self.tag, self.region, self.hidden, self.line = tag, region, hidden, line
         self.buf: list[str] | None = [] if hidden else None
         self.text_len = 0
+        self.nav: str | None = None      # nav signal of a hidden element or of its descendants
+        self.el_id: str | None = None
+        self.chars = 0                   # text chars inside a hidden element
+        self.link_chars = 0              # of them inside <a>
 
 
 class PageParser(HTMLParser):
@@ -275,7 +308,8 @@ class PageParser(HTMLParser):
         self.jsonld_raw: list[tuple[str, int]] = []
         self.other_scripts_data: list[tuple[str, str, int]] = []
         self.comments: list[tuple[str, int]] = []
-        self.hidden_blocks: list[tuple[str, str, int]] = []
+        self.hidden_blocks: list[dict] = []
+        self.controls_ids: set[str] = set()
         self.attr_texts: list[tuple[str, str, int]] = []
         self.itemtypes: list[str] = []
         self.rdfa_types: list[str] = []
@@ -375,7 +409,19 @@ class PageParser(HTMLParser):
         hidden = _hidden_reason(tag, attrs)
         if region == "main":
             self.main_found = True
+        for tok in _attr_tokens(attrs.get("aria-controls")):
+            self.controls_ids.add(tok)
         el = _Element(tag, region, hidden, line)
+        if hidden:
+            outer = self._hidden_ancestor()
+            el.nav = _nav_signal(tag, attrs) or (outer.nav if outer is not None else None)
+            el.el_id = (attrs.get("id") or "").strip() or None
+        else:
+            anc = self._hidden_ancestor()
+            if anc is not None and anc.nav is None:
+                sig = _nav_signal(tag, attrs)
+                if sig and (tag in NAV_TAGS or sig.startswith("role:")):
+                    anc.nav = "child " + sig
         self.stack.append(el)
         if len(self.stack) > 2000:  # pathological nesting: drop the oldest frames
             self.stack = self.stack[-1000:]
@@ -447,7 +493,8 @@ class PageParser(HTMLParser):
         if el.hidden and el.buf is not None:
             text = " ".join(el.buf).strip()
             if text:
-                self.hidden_blocks.append((el.hidden, text, el.line))
+                self.hidden_blocks.append({"reason": el.hidden, "text": text, "line": el.line, "nav": el.nav,
+                                           "id": el.el_id, "chars": el.chars, "link_chars": el.link_chars})
         if self._root_stack and self._root_stack[-1][1] == len(self.stack) + 1:
             rid, _ = self._root_stack.pop()
             self.app_roots[rid] = self.app_roots.get(rid, 0) + el.text_len
@@ -507,6 +554,10 @@ class PageParser(HTMLParser):
         hidden = self._hidden_ancestor()
         if hidden is not None:
             hidden.buf.append(data)
+            n = len(data.strip())
+            hidden.chars += n
+            if self._link is not None:
+                hidden.link_chars += n
         if self._heading is not None:
             self._heading["parts"].append(data)
         if self._link is not None:
@@ -535,6 +586,21 @@ class PageParser(HTMLParser):
 
 
 # ---------------------------------------------------------------------------- analysis
+
+def _hidden_nav_reason(blk: dict, controls_ids: set[str]) -> str | None:
+    """A hidden block is navigation when it has a structural nav signal (own tag/role/class/data-*,
+    a nav descendant, or it is the target of some aria-controls) AND its text is mostly link text.
+    Both are required: a hidden "menu" div with a paragraph and no links is still reported."""
+    signal = blk.get("nav")
+    if not signal and blk.get("id") and blk["id"] in controls_ids:
+        signal = f"aria-controls:{blk['id']}"
+    if not signal or not blk.get("chars"):
+        return None
+    ratio = blk["link_chars"] / blk["chars"]
+    if ratio < NAV_LINK_RATIO:
+        return None
+    return f"{signal}; link_text {ratio:.0%}"
+
 
 def _parse_robots_content(value: str | None) -> list[str]:
     if not value:
@@ -804,6 +870,8 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
     if any(n > 1 for n in codes.values()):
         flags.append("duplicate_hreflang")
     self_canonical = bool(url) and len(canonicals) == 1 and _same_url(canonicals[0]["href"], url)
+    if url and len(canonicals) == 1 and not self_canonical:
+        flags.append("canonical_not_self")  # a fact, not a verdict: check the target's status and intent
     if hreflang and self_canonical and not any(_same_url(h["href"], url) for h in hreflang):
         flags.append("hreflang_no_self_reference")
 
@@ -883,10 +951,18 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
         match = scan_instruction_text(text)
         if match["strong"] or match["weak"]:
             findings.append(_finding("html_comment", "comment", text, match, source_type, url, line))
-    for reason, text, line in parser.hidden_blocks:
+    hidden_nav: list[dict] = []
+    for blk in parser.hidden_blocks:
+        reason, text, line = blk["reason"], blk["text"], blk["line"]
         match = scan_instruction_text(text)
-        if match["strong"] or match["weak"]:
-            findings.append(_finding("hidden_element", reason, text, match, source_type, url, line))
+        if not (match["strong"] or match["weak"]):
+            continue
+        nav = _hidden_nav_reason(blk, parser.controls_ids)
+        if nav and not match["strong"]:
+            hidden_nav.append({"line": line, "hidden_by": reason, "nav": nav, "matched": match["weak"],
+                               "evidence": http_safe.escape_snippet(text, 120)})
+            continue
+        findings.append(_finding("hidden_element", reason, text, match, source_type, url, line))
     for raw, line in parser.jsonld_raw:
         match = scan_instruction_text(raw)
         if match["strong"]:
@@ -948,6 +1024,7 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
         "csr": {"suspected": csr_suspected, "signals": csr_signals},
         "invisible_chars": inv_stats,
         "hidden_instructions": findings,
+        "hidden_navigation_skipped": hidden_nav,
         "ai_addressed_visible_text": ai_visible,
         "flags": sorted(set(flags)),
     }
