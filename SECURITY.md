@@ -25,7 +25,7 @@
 Тесты лежат в `papa-seo/tests/` и запускаются так:
 
 ```bash
-cd papa-seo && python3 -m unittest discover
+cd papa-seo && python3 -m unittest discover -s tests
 ```
 
 Атаки в наборе: редирект на `169.254.169.254`, `http://0x7f000001/`, `http://user@host`, `[::1]`, HTML-комментарий с просьбой прочитать `.env`, инструкция в `display:none`, zero-width символы в тексте, имя файла `../../x`, CSV с `=HYPERLINK(`. Сетевые тесты поднимают свой `http.server` на 127.0.0.1 и в интернет не ходят.
