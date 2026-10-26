@@ -13,6 +13,184 @@
 - Читает выгрузки Search Console, Вебмастера и GA4: сравнение периодов, просадки, запросы рядом с топом.
 - Бесплатно, лицензия MIT. Платные API не нужны, скрипты написаны на стандартной библиотеке Python. Сайт по умолчанию не обходит: одна страница или до 20 адресов по очереди с паузой.
 
+## Установить одним промптом
+
+Скопируйте промпт целиком и отдайте своему агенту: Claude Code, Codex, Cursor, Copilot, Gemini CLI или другому, у которого есть доступ к файлам. Он определит, где работает, положит папку `papa-seo/` в нужное место, проверит её и отчитается. Ничего не удаляет и не перезаписывает: если папка с таким именем уже есть, остановится и спросит.
+
+```text
+Поставь мне скил papa-seo: SEO-аудит, Яндекс, AI-поиск и SEO-тексты, MIT, https://github.com/AffPapa/papa-seo. Иди по шагам, ничего не удаляй и не перезаписывай.
+
+1. Определи, где ты работаешь. По папкам: ~/.claude — Claude Code; ~/.codex или ~/.agents — Codex; ~/.cursor или .cursor в проекте — Cursor; ~/.codeium/windsurf или .windsurf — Windsurf; ~/.copilot или .github/skills — GitHub Copilot; ~/.gemini — Gemini CLI; ~/.openclaw — OpenClaw; ~/.hermes — Hermes. Если ты и так знаешь, кто ты, это важнее папок. Если файловой системы у тебя нет (ChatGPT, claude.ai), остановись и скажи: туда скил ставят иначе, инструкция в README репозитория.
+
+2. Возьми пакет: git clone https://github.com/AffPapa/papa-seo.git во временную папку. Без git — скачай https://github.com/AffPapa/papa-seo/archive/refs/heads/main.zip и распакуй; папка скила внутри архива лежит по пути papa-seo-main/papa-seo/. Нужна только папка papa-seo/ (в ней SKILL.md), остальное из клона не копируй.
+
+3. Куда класть, чтобы получилось <путь>/papa-seo/SKILL.md. Claude Code: ~/.claude/skills/ для всех проектов или <проект>/.claude/skills/ для одного. Codex: ~/.agents/skills/ или <проект>/.agents/skills/. Cursor: <проект>/.agents/skills/ или ~/.cursor/skills/. Windsurf: <проект>/.windsurf/skills/ или ~/.codeium/windsurf/skills/. Copilot: <проект>/.github/skills/ или ~/.copilot/skills/. Gemini CLI: ~/.gemini/skills/ или <проект>/.gemini/skills/. OpenClaw: <workspace>/skills/ или ~/.openclaw/skills/. Hermes: ~/.hermes/skills/. Если на машине есть и ~/.claude, и ~/.agents (или ~/.codex), положи копию в оба: ~/.claude/skills/papa-seo и ~/.agents/skills/papa-seo — Claude Code не читает .agents/skills, а Codex не читает .claude/skills. Если хост не определился, но файлы есть — две копии в проект: <проект>/.agents/skills/papa-seo и <проект>/.claude/skills/papa-seo. Если я не сказал, глобально или в проект, спроси.
+
+4. Перед копированием проверь, что папки papa-seo в целевом месте ещё нет. Есть — остановись и спроси, ничего не трогай. Копируй папку целиком (cp -R). Чужие файлы не меняй. Временную папку с клоном или архивом после этого можно удалить, только её.
+
+5. Проверь каждое место: test -f <путь>/papa-seo/SKILL.md && python3 <путь>/papa-seo/scripts/page_facts.py --help. Нужен Python 3.10 или новее, сторонних пакетов нет.
+
+6. Срабатывание. Claude Code, Codex, Cursor, Windsurf, Copilot, OpenClaw и Hermes подхватывают скил сами по описанию в SKILL.md; Gemini CLI предлагает его, а активацию подтверждаю я. Если ставишь в проект и в его корне уже есть CLAUDE.md, AGENTS.md или файл правил агента, допиши в конец одну строку, ничего не удаляя: «Для SEO-задач, проверки страниц и SEO-текстов используй скил papa-seo (папка <путь>/papa-seo)». Нового файла ради этой строки не создавай.
+
+7. В конце отчитайся: куда положил (полные пути); как вызвать — Claude Code, Cursor, Copilot и Hermes: /papa-seo, Codex и OpenClaw: $papa-seo, Windsurf: @papa-seo, или просто «проверь страницу https://…»; как удалить — rm -rf <путь>/papa-seo плюс убрать добавленную строку из правил (в Codex можно ещё отключить через [[skills.config]] enabled = false в ~/.codex/config.toml, в Gemini CLI — gemini skills uninstall papa-seo). Если на каком-то шаге что-то не сошлось, скажи, что именно, и следующий шаг не делай.
+```
+
+Промпт для агента с доступом к файлам: Claude Code, Codex, Cursor, Copilot, Gemini CLI, Windsurf, OpenClaw, Hermes. Руками проверены Claude Code и Codex (26.10.2026), остальные хосты — по их документации. ChatGPT и claude.ai — ниже, там иначе.
+
+Если знаете, где работаете, короче так:
+
+<details>
+<summary>Claude Code, для всех проектов</summary>
+
+```text
+Поставь скил papa-seo для всех моих проектов. Сделай git clone https://github.com/AffPapa/papa-seo.git во временную папку и скопируй из клона папку papa-seo/ в ~/.claude/skills/papa-seo. Если ~/.claude/skills/papa-seo уже существует, остановись и спроси; ничего другого не удаляй и не перезаписывай. Проверь: test -f ~/.claude/skills/papa-seo/SKILL.md && python3 ~/.claude/skills/papa-seo/scripts/page_facts.py --help. Временную папку с клоном удали. В конце напиши путь, как вызвать (/papa-seo или обычный запрос про SEO) и как удалить (rm -rf ~/.claude/skills/papa-seo).
+```
+
+Срабатывает сам по описанию в SKILL.md: описания всех скилов Claude Code держит в контексте. Список — /skills. Строка в CLAUDE.md не нужна. Облачные сессии Claude Code и Cowork папку ~/.claude/skills не читают — для них см. claude.ai.
+
+</details>
+
+<details>
+<summary>Claude Code, в один проект</summary>
+
+```text
+Поставь скил papa-seo только в этот проект. Сделай git clone https://github.com/AffPapa/papa-seo.git во временную папку и скопируй из клона папку papa-seo/ в <корень репозитория>/.claude/skills/papa-seo. Если такая папка уже есть, остановись и спроси; чужие файлы не трогай. Проверь: test -f .claude/skills/papa-seo/SKILL.md && python3 .claude/skills/papa-seo/scripts/page_facts.py --help. Если в корне есть CLAUDE.md, допиши в конец строку «Для SEO-задач, проверки страниц и SEO-текстов используй скил papa-seo (.claude/skills/papa-seo)», ничего не удаляя. Клон удали. В конце: путь, как вызвать, как удалить.
+```
+
+Папку .claude/skills Claude Code находит с любого каталога до корня репозитория и подхватывает без перезапуска; если создали новый корень скилов — /reload-skills. Строка в CLAUDE.md по документации не обязательна, вреда от неё нет.
+
+</details>
+
+<details>
+<summary>OpenAI Codex: CLI, IDE, desktop</summary>
+
+```text
+Поставь скил papa-seo. Сделай git clone https://github.com/AffPapa/papa-seo.git во временную папку и скопируй из клона папку papa-seo/ в ~/.agents/skills/papa-seo (для всех проектов) или в <корень репозитория>/.agents/skills/papa-seo (для одного) — если я не сказал куда, спроси. Если папка уже есть, остановись и спроси; ничего не удаляй и не перезаписывай. Проверь: test -f <путь>/papa-seo/SKILL.md && python3 <путь>/papa-seo/scripts/page_facts.py --help. Если ставишь в проект и в корне есть AGENTS.md, допиши в конец строку «Для SEO-задач, проверки страниц и SEO-текстов используй скил papa-seo (.agents/skills/papa-seo)». Клон удали. В конце: путь, как вызвать ($papa-seo или /skills), как удалить.
+```
+
+Codex читает .agents/skills в текущем каталоге и каждом родителе до корня репозитория; .claude/skills он не читает (проверено 26.10.2026 через codex debug prompt-input). Срабатывает сам по описанию; если не видит — перезапустите Codex. Отключить без удаления: [[skills.config]] path = ".../papa-seo/SKILL.md", enabled = false в ~/.codex/config.toml. Облачный Codex (web) скилы в документации не описывает.
+
+</details>
+
+<details>
+<summary>Cursor</summary>
+
+```text
+Поставь скил papa-seo. Сделай git clone https://github.com/AffPapa/papa-seo.git во временную папку и скопируй из клона папку papa-seo/ в <корень репозитория>/.agents/skills/papa-seo (для проекта) или в ~/.cursor/skills/papa-seo (для всех проектов) — если я не сказал куда, спроси. Если папка уже есть, остановись и спроси; ничего не удаляй и не перезаписывай. Проверь: test -f <путь>/papa-seo/SKILL.md && python3 <путь>/papa-seo/scripts/page_facts.py --help. Клон удали. В конце: путь, как вызвать (/papa-seo в чате Agent), как удалить (rm -rf <путь>/papa-seo).
+```
+
+Cursor читает .cursor/skills и .agents/skills в проекте, ~/.cursor/skills и ~/.agents/skills глобально, а для совместимости и .claude/skills (документация Cursor, 26.10.2026). Скилы находит при старте — после копирования перезапустите Cursor.
+
+</details>
+
+<details>
+<summary>Windsurf, GitHub Copilot, Gemini CLI, OpenClaw и другие хосты .agents/skills</summary>
+
+```text
+Поставь скил papa-seo. Сделай git clone https://github.com/AffPapa/papa-seo.git во временную папку и скопируй из клона папку papa-seo/ в <корень репозитория>/.agents/skills/papa-seo. Если у тебя своя папка скилов — положи туда же вторую копию: Windsurf — .windsurf/skills/ или ~/.codeium/windsurf/skills/; GitHub Copilot — .github/skills/ (для облачного агента только так) или ~/.copilot/skills/; Gemini CLI — ~/.gemini/skills/ или .gemini/skills/; OpenClaw — <workspace>/skills/ или ~/.openclaw/skills/; Hermes — ~/.hermes/skills/. Если целевая папка уже существует, остановись и спроси; ничего не удаляй и не перезаписывай. Проверь: test -f <путь>/papa-seo/SKILL.md && python3 <путь>/papa-seo/scripts/page_facts.py --help. Если в корне проекта есть AGENTS.md или файл правил агента, допиши в конец строку «Для SEO-задач, проверки страниц и SEO-текстов используй скил papa-seo (<путь>/papa-seo)». Клон удали. В конце: пути, как вызвать, как удалить.
+```
+
+По документации каждого из них .agents/skills читают Codex, Cursor, Windsurf, Copilot, Gemini CLI и OpenClaw; Hermes — только ~/.hermes/skills. Вызов: Windsurf @papa-seo, Copilot /papa-seo (и /skills reload), OpenClaw $papa-seo, Hermes /papa-seo. Gemini CLI сам скил не включает: модель предлагает, вы подтверждаете; удалить — gemini skills uninstall papa-seo. Windsurf теперь Devin Desktop, пути .windsurf/skills в его документации названы устаревшими. На этих хостах пакет руками не проверяли.
+
+</details>
+
+<details>
+<summary>ChatGPT: частично, без скриптов</summary>
+
+```text
+Ты работаешь по скилу papa-seo; его SKILL.md и политики вставлены ниже, следуй им. Скрипты из scripts/ тебе недоступны: там, где скил велит запустить скрипт, сделай ту же проверку вручную по HTML, robots.txt или выгрузке, которые я дам, и пометь, что проверка ручная. Модули из modules/, которых здесь нет, не додумывай — скажи, какой модуль нужен, и я вставлю его текст. Сайты не обходи. Ничего не выдумывай: нет данных — так и пиши. У каждого вывода о сайте — цитата-доказательство и статус confirmed, likely или hypothesis.
+```
+
+В ChatGPT папок скилов нет, поэтому этот текст — не команда, а начало инструкций проекта. Руками: Project → Instructions (или Instructions кастомного GPT), вставьте текст выше, затем содержимое papa-seo/SKILL.md и papa-seo/policies/security.md, evidence.md, actions.md из репозитория. Нужные модули из papa-seo/modules/ — файлами проекта, их число ограничено тарифом. Скрипты не выполняются, обход сайта не делается; это частичная установка.
+
+</details>
+
+<details>
+<summary>claude.ai</summary>
+
+```text
+Собери zip для загрузки скила papa-seo в claude.ai. Сделай git clone https://github.com/AffPapa/papa-seo.git во временную папку, скопируй папку papa-seo/ в отдельный каталог, и в её SKILL.md замени значение description во frontmatter на эту строку (целиком, в одну строку): "SEO, GEO and content skill for Google, Yandex and AI search: page and site audits with evidence, briefs, articles, de-AI editing in RU/EN. Use for SEO audits, robots, schema, titles, SEO texts.". Больше ничего в файлах не меняй. Упакуй так, чтобы папка papa-seo/ была корнем архива: cd в каталог с papa-seo и zip -r papa-seo.zip papa-seo. Скажи мне путь к архиву. В мои папки скилов ничего не ставь.
+```
+
+Этот промпт — для агента с файлами (Claude Code и т. п.), сам claude.ai zip не соберёт. Дальше руками: Customize → Skills → «+» → Upload a skill, включить code execution. У claude.ai description не длиннее 200 символов, в пакете она 560, поэтому без замены загрузка не пройдёт. Скил срабатывает сам по описанию; удалить — тумблер → «…» → Delete. С включённым syncClaudeAiSkills он появится и в Claude Code, в ~/.claude/skills/synced/.
+
+</details>
+
+<details>
+<summary>В свой проект: установка и .papa-seo/project.md</summary>
+
+```text
+Поставь скил papa-seo в этот репозиторий и заведи контекст проекта.
+
+1. git clone https://github.com/AffPapa/papa-seo.git во временную папку. Скопируй из клона папку papa-seo/ в <корень репозитория>/.claude/skills/papa-seo, если здесь работают в Claude Code, и в <корень репозитория>/.agents/skills/papa-seo, если в Codex, Cursor, Copilot, Gemini CLI, Windsurf или OpenClaw; если не знаешь — в оба. Папка уже есть — остановись и спроси. Ничего не удаляй и не перезаписывай.
+2. Проверь каждую копию: test -f <путь>/papa-seo/SKILL.md && python3 <путь>/papa-seo/scripts/page_facts.py --help.
+3. Создай .papa-seo/project.md из шаблона: mkdir -p .papa-seo && cp <путь>/papa-seo/templates/project-context.md .papa-seo/project.md. Если файл уже есть, не трогай его и скажи мне.
+4. Задай мне пять вопросов, по одному: (1) рынок и язык — страны, регионы, языки сайта; (2) какие поисковики важны и в каких долях, важен ли AI-поиск; (3) можно ли обходить сайт, сколько потоков, какая пауза, когда нельзя; (4) куда класть результаты и кто подтверждает правки; (5) голос текстов и откуда брать факты. Впиши ответы в .papa-seo/project.md; строки, на которые я не ответил, удали — скил возьмёт осторожные значения. Ключи и пароли в файл не писать.
+5. Если в корне есть CLAUDE.md или AGENTS.md, допиши в конец: «Для SEO-задач, проверки страниц и SEO-текстов используй скил papa-seo». Клон удали. Отчитайся: пути, что в project.md заполнено, как удалить.
+```
+
+Файл .papa-seo/project.md скил читает до выбора режима; его ограничения главнее умолчаний пакета. Без файла работает самый осторожный режим: одна страница или до 20 адресов по очереди, без обхода и без публикации.
+
+</details>
+
+<details>
+<summary>Без ИИ: git clone, npx skills, zip</summary>
+
+Установщика нет. Пакет — одна папка papa-seo/, её копируют в каталог скилов; чужие файлы при этом не меняются, проверьте только, что папки с таким именем там ещё нет. Скриптам нужен Python 3.10 или новее, сторонних пакетов нет.
+
+Скачать:
+
+```bash
+git clone https://github.com/AffPapa/papa-seo.git && cd papa-seo
+```
+
+Claude Code:
+
+```bash
+cp -R papa-seo ~/.claude/skills/papa-seo            # для всех проектов
+cp -R papa-seo <проект>/.claude/skills/papa-seo     # для одного проекта
+```
+
+Codex, Cursor, Copilot, Gemini CLI, OpenClaw:
+
+```bash
+cp -R papa-seo ~/.agents/skills/papa-seo            # для всех проектов
+cp -R papa-seo <репозиторий>/.agents/skills/papa-seo # для одного репозитория
+```
+
+Через skills CLI, Node.js 22.20 или новее:
+
+```bash
+npx skills add AffPapa/papa-seo -g                  # или без -g, в текущий проект
+npx skills add AffPapa/papa-seo -g -a claude-code -a codex   # хосты явно
+npx skills remove papa-seo -g -y                    # удалить
+```
+
+Из архива:
+
+```bash
+curl -fL -o papa-seo-main.zip https://github.com/AffPapa/papa-seo/archive/refs/heads/main.zip
+unzip papa-seo-main.zip && cp -R papa-seo-main/papa-seo ~/.claude/skills/papa-seo
+```
+
+npx skills add находит papa-seo/SKILL.md в репозитории (проверено 26.10.2026), кладёт копию в ~/.agents/skills/papa-seo, а в ~/.claude/skills/papa-seo ставит симлинк на неё (с --copy — копию) и пишет ~/.agents/.skill-lock.json. Телеметрия у CLI включена, выключается DISABLE_TELEMETRY=1. Удалить скил в любом случае — стереть папку.
+
+</details>
+
+<details>
+<summary>Скачать</summary>
+
+- [Скачать zip (main)](https://github.com/AffPapa/papa-seo/archive/refs/heads/main.zip)
+- [Релиз v0.1.1](https://github.com/AffPapa/papa-seo/releases/tag/v0.1.1)
+
+main.zip — текущая ветка main, всегда актуален; внутри папка papa-seo-main/, скил лежит в papa-seo-main/papa-seo/. Релиз v0.1.1 — архив papa-seo-0.1.1.zip только с папкой papa-seo/, README, LICENSE и THIRD_PARTY_NOTICES, SHA-256 в описании релиза; появится после публикации. Копию архива на affpapa.org не держим, чтобы не разъехалась с GitHub.
+
+</details>
+
+### Контекст проекта
+
+Если в корне проекта лежит `.papa-seo/project.md`, скил читает его до выбора режима: рынок и язык, какие поисковики важны, можно ли обходить сайт и с какой нагрузкой, куда класть результаты, кто публикует правки, какой голос у текстов. Заготовка — `papa-seo/templates/project-context.md`, профиль голоса — `papa-seo/templates/voice-profile.md`. Без этого файла скил держится самых осторожных настроек. Промпт «В свой проект» выше создаёт файл и задаёт пять вопросов сам.
+
 ## Попробуйте за минуту
 
 ### Проверить страницу: совпадает ли разметка с текстом
@@ -34,38 +212,6 @@ papa-seo page https://affpapa.org/neevents/piterskie-razborki — сверь д�
 Результат: таблица «бот × URL → разрешено или запрещено» по ботам поиска, обучения и загрузки по запросу, находки с пометкой `engine: yandex` и, если попросите, правка robots.txt диффом.
 
 Частая ошибка, которую скил ловит: YandexAdditional не подчиняется ни `User-agent: *`, ни группе `Yandex`, ему нужна своя группа. «Закрыли всех звёздочкой» его не закрывает.
-
-## Установка в Claude Code и Codex
-
-Установщика нет. Пакет — одна папка `papa-seo/`, её копируют в каталог скилов. В ваших настройках ничего не удаляется и не перезаписывается, проверьте только, что папки с таким именем там ещё нет. Скриптам нужен Python 3.10 или новее, сторонних пакетов нет.
-
-```bash
-git clone https://github.com/AffPapa/papa-seo.git && cd papa-seo
-```
-
-### Claude Code
-
-```bash
-cp -R papa-seo ~/.claude/skills/papa-seo            # для всех проектов
-cp -R papa-seo <проект>/.claude/skills/papa-seo     # для одного проекта
-```
-
-### OpenAI Codex: папка .agents/skills
-
-По документации Codex (проверено 24.10.2026, developers.openai.com/codex/skills) скилы лежат в `.agents/skills`:
-
-```bash
-cp -R papa-seo ~/.agents/skills/papa-seo                 # для всех проектов
-cp -R papa-seo <репозиторий>/.agents/skills/papa-seo     # для одного репозитория
-```
-
-Codex ищет `.agents/skills` в каждом каталоге от текущего до корня репозитория. Путь `~/.codex/skills` из старых инструкций текущая документация не называет.
-
-`SKILL.md` написан в открытом формате Agent Skills, но проверяли пакет только в Claude Code и Codex. Удалить скил — стереть папку.
-
-### Контекст проекта
-
-Если в корне проекта лежит `.papa-seo/project.md`, скил читает его до выбора режима: рынок и язык, какие поисковики важны, можно ли обходить сайт и с какой нагрузкой, куда класть результаты, кто публикует правки, какой голос у текстов. Заготовка — `papa-seo/templates/project-context.md`, профиль голоса — `papa-seo/templates/voice-profile.md`. Без этого файла скил держится самых осторожных настроек.
 
 ## Режимы
 
@@ -688,7 +834,18 @@ evals/           сайт-фикстура с заложенными ошибк�
 
 ## Откуда это
 
-Пакет собран после проверки примерно 105 открытых репозиториев со SEO-, GEO- и копирайтинг-скилами (24.10.2026). Методики и формулировки брали только там, где лицензия это разрешает, и у первоисточников, а не у клонов. Где лицензии нет, взяты идеи, пересказанные своими словами. Источники, коммиты и лицензии — в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [source.lock.json](source.lock.json) и папке [licenses/](licenses/).
+Пакет собран после проверки 105 открытых репозиториев со SEO-, GEO- и копирайтинг-скилами (24.10.2026): 94 в первом заходе и 11 во втором. Методики и формулировки брали только там, где лицензия это разрешает, и у первоисточников, а не у клонов. Где лицензии нет, взяты идеи, пересказанные своими словами. Источники, коммиты и лицензии — в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [source.lock.json](source.lock.json) и папке [licenses/](licenses/).
+
+Из чего собран, в цифрах:
+
+- 105 репозиториев разобраны статически, ни один скил или установщик не запускался; вердикт безопасности: 40 чистых, 56 с оговорками, 9 отклонены; вредоносного кода не нашли ни в одном.
+- Ещё 89 репозиториев на 89 аккаунтах оказались одной фейковой сетью, их разбирали только по метаданным.
+- 23 донора, чьи формулировки адаптированы с атрибуцией и коммитом; 16 источников, у которых взяты только идеи.
+- Из 94 исходных репозиториев у 71 лицензия в порядке, у 10 «MIT» стоит только в README, у 9 лицензии нет или она закрытая, 4 под AGPL, CC BY-SA или с поддельной.
+- 17 реализаций де-AI редактуры, почти все восходят к одной странице Wikipedia; Яндекс закрыт у одного донора, YandexAdditional не упомянут ни в одном из 105.
+- Не взяли группами: платные API и облачные MCP, реклама внутри отчётов, обход капчи, деинсталляторы по маске, удалённый SKILL.md, авто-merge, куки браузера.
+
+Полная раскладка — кто, что, под какой лицензией, что отбросили и почему, какие «нормы» из чужих скилов не прошли проверку по первоисточникам — в [docs/RESEARCH.md](docs/RESEARCH.md).
 
 ## Страница проекта
 
