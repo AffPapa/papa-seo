@@ -28,6 +28,12 @@ import sys
 from collections import Counter
 from html.parser import HTMLParser
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ru_text  # noqa: E402
+
+_plural = ru_text.plural
+_qty = ru_text.num
+
 VERSION = "0.2.0"
 MAX_BYTES = 10 * 1024 * 1024
 # Граница «длинного предложения» — ориентир редактора, не норма поиска.
@@ -1004,7 +1010,8 @@ def repeated_ngrams(segments: list[list[str]], n_min: int = 2, n_max: int = 5,
                 "списка, заголовка, ячейки); через границу предложения не склеиваются",
     }
     if truncated:
-        out["truncated"] = (f"повторы считаны по первым {total_words} значимым словам "
+        out["truncated"] = (f"повторы считаны по {_plural(total_words, 'первому', 'первым', 'первым')} "
+                            f"{_qty(total_words, 'значимому слову', 'значимым словам', 'значимым словам')} "
                             f"(предел {NGRAM_MAX_WORDS}); остальной текст в этот счёт "
                             "не вошёл")
     return out

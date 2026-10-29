@@ -35,6 +35,7 @@ from urllib.parse import unquote, urlsplit
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import http_safe  # noqa: E402
 import page_facts  # noqa: E402
+import ru_text  # noqa: E402
 import text_metrics  # noqa: E402
 import deai_scan  # noqa: E402
 import robots_check  # noqa: E402
@@ -675,7 +676,7 @@ def c_chain(ctx):
     steps = " → ".join(esc(s.get("url"), 120) for s in chain)
     if hops == 1:
         return info(f"Один редирект: {steps}", value=hops)
-    return warn(f"{hops} редиректов подряд: {steps}", value=hops,
+    return warn(f"{_qty(hops, 'редирект', 'редиректа', 'редиректов')} подряд: {steps}", value=hops,
                 fix="Свести к одному шагу: источник → конечный адрес")
 
 
@@ -804,10 +805,11 @@ def c_rendering(ctx):
     words = _n(ctx.get("words_visible"))
     if csr.get("suspected"):
         return bad("В сыром HTML почти нет текста: страницу собирает скрипт в браузере",
-                   value=f"{words} слов", evidence=esc(", ".join(csr.get("signals") or []), 200),
+                   value=_qty(words, "слово", "слова", "слов"),
+                   evidence=esc(", ".join(csr.get("signals") or []), 200),
                    severity="high",
                    fix="Отдавать основной текст и ссылки в HTML (SSR или пререндер)")
-    return ok("Текст есть в ответе сервера", value=f"{words} слов")
+    return ok("Текст есть в ответе сервера", value=_qty(words, "слово", "слова", "слов"))
 
 
 @check("content.words_main", "access", "Объём основного текста", severity="medium", kind=HEUR,
@@ -824,9 +826,9 @@ def c_thin(ctx):
         return bad("Текста нет совсем", value=0, severity="high",
                    fix="Либо на странице нет контента, либо он рисуется скриптом")
     if words < 120:
-        return warn(f"Текста мало: {words} слов{note}", value=words,
+        return warn(f"Текста мало: {_qty(words, 'слово', 'слова', 'слов')}{note}", value=words,
                     fix="Это ориентир, не норма: решать по типу страницы — у карточки и фильтра так и должно быть")
-    return ok(f"{words} слов основного текста{note}", value=words)
+    return ok(f"{_qty(words, 'слово', 'слова', 'слов')} основного текста{note}", value=words)
 
 
 # ---------------------------------------------------------------------------- заголовки и мета
@@ -838,7 +840,8 @@ def c_title(ctx):
         return bad("title пустой или отсутствует", severity="critical",
                    fix="Добавить <title> с тем, что человек искал бы в поиске")
     if _n(ctx.get("title_count"), 1) > 1:
-        return warn(f"В HTML {ctx.get('title_count')} тегов title — поисковик возьмёт первый",
+        return warn(f"В HTML {_qty(_n(ctx.get('title_count')), 'тег', 'тега', 'тегов')} title "
+                    "— поисковик возьмёт первый",
                     value=esc(title, 160), fix="Оставить один")
     return ok("title есть", value=esc(title, 160))
 
@@ -850,12 +853,13 @@ def c_title_length(ctx):
     if not length:
         return nodata("title пустой")
     if length < 20:
-        return warn(f"title короткий: {length} символов", value=length,
+        return warn(f"title короткий: {_qty(length, 'символ', 'символа', 'символов')}", value=length,
                     fix="Добавить конкретику — что за страница и чья")
     if length > 70:
-        return warn(f"title длинный: {length} символов — в выдаче, скорее всего, обрежется", value=length,
+        return warn(f"title длинный: {_qty(length, 'символ', 'символа', 'символов')} "
+                    "— в выдаче, скорее всего, обрежется", value=length,
                     fix="Главное вынести в первые 50–60 символов")
-    return ok(f"{length} символов", value=length)
+    return ok(_qty(length, "символ", "символа", "символов"), value=length)
 
 
 @check("meta.desc_present", "meta", "meta description", severity="medium",
@@ -866,7 +870,8 @@ def c_description(ctx):
         return warn("meta description нет — сниппет поисковик соберёт сам",
                     fix="Описание влияет не на место в выдаче, а на клик: написать 1–2 предложения по делу")
     if _n(ctx.get("description_count"), 1) > 1:
-        return warn(f"{ctx.get('description_count')} тегов description", value=esc(desc, 200),
+        return warn(f"{_qty(_n(ctx.get('description_count')), 'тег', 'тега', 'тегов')} description",
+                    value=esc(desc, 200),
                     fix="Оставить один")
     return ok("description есть", value=esc(desc, 200))
 
@@ -879,10 +884,12 @@ def c_description_length(ctx):
         return nodata("description нет")
     n = len(desc)
     if n < 50:
-        return warn(f"Описание короткое: {n} символов", value=n, fix="Дописать до 1–2 предложений")
+        return warn(f"Описание короткое: {_qty(n, 'символ', 'символа', 'символов')}", value=n,
+                    fix="Дописать до 1–2 предложений")
     if n > 200:
-        return warn(f"Описание длинное: {n} символов — обрежется", value=n, fix="Сократить до сути")
-    return ok(f"{n} символов", value=n)
+        return warn(f"Описание длинное: {_qty(n, 'символ', 'символа', 'символов')} — обрежется",
+                    value=n, fix="Сократить до сути")
+    return ok(_qty(n, "символ", "символа", "символов"), value=n)
 
 
 @check("meta.h1_present", "meta", "H1", severity="high", source="Google: Use headings to emphasize text")
@@ -949,8 +956,9 @@ def c_text_volume(ctx):
     counts = ctx.get("text_counts") or {}
     if not counts:
         return nodata("Текст не разбирали")
-    return info(f"{counts.get('words')} слов, {counts.get('chars_no_spaces')} знаков без пробелов, "
-                f"{counts.get('sentences_prose')} предложений",
+    return info(f"{_qty(_n(counts.get('words')), 'слово', 'слова', 'слов')}, "
+                f"{_qty(_n(counts.get('chars_no_spaces')), 'знак', 'знака', 'знаков')} без пробелов, "
+                f"{_qty(_n(counts.get('sentences_prose')), 'предложение', 'предложения', 'предложений')}",
                 value=counts.get("words"))
 
 
@@ -990,9 +998,12 @@ def c_rhythm(ctx):
     if not sent:
         return nodata("Сплошного текста нет")
     cv = sent.get("cv")
-    msg = f"средняя длина {sent.get('mean')} слов, разброс (CV) {cv}"
+    mean = sent.get("mean")
+    msg = (f"средняя длина {mean} {_plural(mean or 0, 'слово', 'слова', 'слов')}, "
+           f"разброс (CV) {cv}")
     if runs:
-        return warn(f"{len(runs)} участков с одинаковой длиной предложений; {msg}", value=cv,
+        return warn(f"{_qty(len(runs), 'участок', 'участка', 'участков')} "
+                    f"с одинаковой длиной предложений; {msg}", value=cv,
                     fix="Признак машинного ритма: рвать длину — короткое рядом с длинным")
     return ok(msg, value=cv)
 
@@ -1291,7 +1302,8 @@ def c_llms(ctx):
     if data.get("error"):
         return info("Файл получить не удалось", value=esc(data.get("error"), 60))
     if 200 <= _n(data.get("status")) < 300:
-        return info(f"llms.txt есть ({data.get('bytes')} байт)", evidence=esc(data.get("head"), 200))
+        return info(f"llms.txt есть ({_qty(_n(data.get('bytes')), 'байт', 'байта', 'байт')})",
+                    evidence=esc(data.get("head"), 200))
     return info(f"llms.txt нет (статус {data.get('status')}) — это не дефект", value=data.get("status"))
 
 
@@ -1316,7 +1328,7 @@ def c_answer_first(ctx):
     if words < 15:
         return warn("Первые строки почти без текста: модели и люди не увидят ответа сразу", value=words,
                     fix="Начать с ответа на главный вопрос страницы")
-    return ok(f"В начале текста {words} слов", evidence=esc(lead, 200))
+    return ok(f"В начале текста {_qty(words, 'слово', 'слова', 'слов')}", evidence=esc(lead, 200))
 
 
 # ---------------------------------------------------------------------------- коммерческие сигналы
@@ -1456,7 +1468,8 @@ def c_nav_without_href(ctx):
     broken = [l for l in links if l.get("region") in nav_regions
               and l.get("kind") in ("none", "javascript")]
     if broken:
-        return warn(f"В меню и подвале {len(broken)} «ссылок» без настоящего адреса",
+        return warn(f"В меню и подвале {_qty(len(broken), '«ссылка»', '«ссылки»', '«ссылок»')} "
+                    "без настоящего адреса",
                     evidence=esc("; ".join((l.get("text") or l.get("kind") or "") for l in broken[:5]), 200),
                     fix="Переходы делать через <a href>: иначе раздел не обойдут")
     return ok("Навигация на обычных ссылках")
@@ -1469,7 +1482,8 @@ def c_canonical_count(ctx):
     if not canon:
         return nodata("canonical нет")
     if len(canon) > 1:
-        return bad(f"rel=canonical объявлен {len(canon)} раз — Google проигнорирует все", severity="high",
+        return bad(f"rel=canonical объявлен {_qty(len(canon), 'раз', 'раза', 'раз')} "
+                   "— Google проигнорирует все", severity="high",
                    evidence=esc("; ".join(c.get("href", "") for c in canon), 240),
                    fix="Оставить один тег")
     return ok("Один canonical")
@@ -1507,9 +1521,11 @@ URL_CHECKS = (
      lambda path, parts: ("_" in path, "в пути есть подчёркивания", "В пути подчёркиваний нет",
                           "Дефис читается поисковиком как разделитель слов, подчёркивание — нет")),
     ("access.url_length", "Длина URL", "info",
-     lambda path, parts: (False, "", f"{len(parts.geturl())} символов", None)),
+     lambda path, parts: (False, "", _qty(len(parts.geturl()), "символ", "символа", "символов"),
+                          None)),
     ("access.url_depth", "Глубина пути", "info",
-     lambda path, parts: (False, "", f"{len([s for s in path.split('/') if s])} уровней", None)),
+     lambda path, parts: (False, "", _qty(len([s for s in path.split("/") if s]),
+                                          "уровень", "уровня", "уровней"), None)),
     ("access.url_case", "Верхний регистр в пути", "low",
      lambda path, parts: (bool(re.search(r"[A-ZА-Я]", path)), "в пути есть заглавные буквы",
                           "В пути только строчные буквы",
@@ -1640,8 +1656,10 @@ def c_sentences(ctx):
     if not counts:
         return nodata("Текст не разбирали")
     desc = (sent.get("sentence_words") or {})
-    return info(f"{counts.get('sentences_prose')} предложений, в среднем "
-                f"{desc.get('mean')} слов (от {desc.get('min')} до {desc.get('max')})",
+    mean = desc.get("mean")
+    return info(f"{_qty(_n(counts.get('sentences_prose')), 'предложение', 'предложения', 'предложений')}"
+                f", в среднем {mean} {_plural(mean or 0, 'слово', 'слова', 'слов')} "
+                f"(от {desc.get('min')} до {desc.get('max')})",
                 value=counts.get("sentences_prose"))
 
 
@@ -1651,7 +1669,9 @@ def c_paragraphs(ctx):
     if not counts:
         return nodata("Текст не разбирали")
     para = dig(ctx.bundle, "text.rhythm.paragraph_words") or {}
-    return info(f"{counts.get('paragraphs_prose')} абзацев, в среднем {para.get('mean')} слов",
+    mean = para.get("mean")
+    return info(f"{_qty(_n(counts.get('paragraphs_prose')), 'абзац', 'абзаца', 'абзацев')}, в среднем "
+                f"{mean} {_plural(mean or 0, 'слово', 'слова', 'слов')}",
                 value=counts.get("paragraphs_prose"))
 
 
@@ -1789,7 +1809,7 @@ def c_external_hosts(ctx):
         return nodata("Ссылки не разбирали")
     if not hosts:
         return info("Внешних ссылок нет")
-    return info(f"Внешних домена(ов): {len(hosts)} — "
+    return info(f"Внешних доменов: {len(hosts)} — "
                 + ", ".join(f"{esc(h, 40)} ×{n}" for h, n in hosts.most_common(6)), value=len(hosts))
 
 
@@ -1894,7 +1914,8 @@ def c_ai_txt(ctx):
     if data.get("error"):
         return info("Файл получить не удалось", value=esc(data.get("error"), 60))
     if 200 <= _n(data.get("status")) < 300:
-        return info(f"ai.txt есть ({data.get('bytes')} байт)", evidence=esc(data.get("head"), 200))
+        return info(f"ai.txt есть ({_qty(_n(data.get('bytes')), 'байт', 'байта', 'байт')})",
+                    evidence=esc(data.get("head"), 200))
     return info(f"ai.txt нет (статус {data.get('status')}) — это не дефект", value=data.get("status"))
 
 
@@ -1922,7 +1943,8 @@ def c_max_snippet(ctx):
                     return bad("max-snippet:0 — сниппета не будет", severity="high", value=v,
                                fix="Снять ограничение, если страница должна показываться с текстом")
                 if n > 0:
-                    return info(f"Сниппет ограничен {n} символами ({key})", value=v)
+                    return info(f"Сниппет ограничен "
+                                f"{_qty(n, 'символом', 'символами', 'символами')} ({key})", value=v)
                 return ok("max-snippet:-1 — ограничения нет", value=v)
     return ok("Ограничения длины сниппета нет")
 
@@ -2007,11 +2029,14 @@ def _dup_verdict(values: dict, label: str, total: int):
         return nodata(f"Ни на одной странице нет {label}")
     dupes = {k: v for k, v in values.items() if len(v) > 1}
     if dupes:
-        lines = [f"«{esc(k, 80)}» — {len(v)} страниц" for k, v in list(dupes.items())[:5]]
-        return warn(f"Повторяющихся {label}: {len(dupes)} на {total} проверенных страниц",
+        lines = [f"«{esc(k, 80)}» — {_qty(len(v), 'страница', 'страницы', 'страниц')}"
+                 for k, v in list(dupes.items())[:5]]
+        return warn(f"Повторяющихся {label}: {len(dupes)} на "
+                    f"{_qty(total, 'проверенной странице', 'проверенных страницах', 'проверенных страницах')}",
                     evidence=esc("; ".join(lines), 300),
                     fix=f"Переписать {label} так, чтобы по нему было понятно, какая это страница")
-    return ok(f"{label} у всех {total} страниц разные")
+    return ok("Проверена одна страница: сравнивать не с чем" if total == 1
+              else f"{label} у всех {_qty(total, 'страницы', 'страниц', 'страниц')} разные")
 
 
 @check("site.pages_noindex", "site", "Страницы, закрытые от индексации", severity="high",
@@ -2022,7 +2047,9 @@ def s_blocked(pages):
         return bad(f"Закрыты от индексации: {len(closed)} из {len(pages)}", severity="high",
                    evidence=esc("; ".join(closed[:5]), 300),
                    fix="Проверить, намеренно ли это")
-    return ok(f"Все {len(pages)} страниц открыты для индексации")
+    return ok("Единственная страница открыта для индексации" if len(pages) == 1
+              else f"Все {_qty(len(pages), 'страница', 'страницы', 'страниц')} "
+                   "открыты для индексации")
 
 
 @check("site.pages_status", "site", "Коды ответа по списку", severity="critical",
@@ -2034,7 +2061,8 @@ def s_status(pages):
         return bad(f"Не отвечают 200: {len(bad_rows)} из {len(pages)}", severity="critical",
                    evidence=esc("; ".join(f"{u} → {s}" for u, s in bad_rows[:5]), 300),
                    fix="Разобраться с кодами ответа до остальных правок")
-    return ok(f"Все {len(pages)} страниц отвечают 200")
+    return ok("Единственная страница отвечает 200" if len(pages) == 1
+              else f"Все {_qty(len(pages), 'страница', 'страницы', 'страниц')} отвечают 200")
 
 
 # ---------------------------------------------------------------------------- сборка отчёта
@@ -2471,14 +2499,8 @@ a{color:#000;text-decoration:none}
 """
 
 
-def _plural(n: int, one: str, few: str, many: str) -> str:
-    """«1 проблема», «2 проблемы», «5 проблем»: иначе сводка читается как машинный вывод."""
-    n = abs(int(n))
-    if n % 10 == 1 and n % 100 != 11:
-        return one
-    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
-        return few
-    return many
+_plural = ru_text.plural  # «1 проблема», «2 проблемы», «5 проблем»
+_qty = ru_text.num
 
 
 def _h(value) -> str:
@@ -2616,8 +2638,10 @@ def render_html(report: dict) -> str:
     postponed = sum(_n(p.get("postponed")) for p in report["pages"] if not p.get("error"))
     if any(p.get("blocking") for p in report["pages"] if not p.get("error")):
         parts.append('<p class="sub small">Пока держится блокирующее условие, остальное '
-                     "подождёт: " + (f"ещё {postponed} находок ждут своей очереди в таблицах ниже."
-                                     if postponed else "других находок нет."))
+                     "подождёт: "
+                     + (f"ещё {_qty(postponed, 'находка', 'находки', 'находок')} "
+                        f"{_plural(postponed, 'ждёт', 'ждут', 'ждут')} своей очереди в таблицах ниже."
+                        if postponed else "других находок нет."))
     else:
         parts.append('<p class="sub small">Порядок — по серьёзности из реестра параметров, '
                      "а не по нашему ощущению важности.</p>")
@@ -2648,8 +2672,9 @@ def render_html(report: dict) -> str:
             # По одной странице о сайте сказать нечего: раздел сворачивается в строку,
             # а не рисует семь пустых таблиц.
             waiting = site["totals"][NOTCHECKED]
-            parts.append(f'<details><summary>Проверена одна страница: {waiting} параметров '
-                         "о сайте целиком ждут обхода</summary>"
+            parts.append('<details><summary>Проверена одна страница: '
+                         f"{_qty(waiting, 'параметр', 'параметра', 'параметров')} о сайте целиком "
+                         f"{_plural(waiting, 'ждёт', 'ждут', 'ждут')} обхода</summary>"
                          '<div class="after-summary">'
                          '<p class="sub small">Дубли title и description, сироты, глубина клика '
                          "и прочее считается по нескольким адресам: "
@@ -2712,13 +2737,20 @@ def text_summary(report: dict) -> str:
     lines.append(f"проблем {t[BAD]} · предупреждений {t[WARN]} · норма {t[OK]} · "
                  f"нет данных {t[NODATA]} · не проверяли {t[NOTCHECKED]}")
     if cov["registry_params"]:
-        lines.append(f"реестр: проверено {cov['registry_checked']} из {cov['registry_params']} параметров")
+        lines.append(f"реестр: проверено {cov['registry_checked']} из "
+                     f"{_qty(cov['registry_params'], 'параметра', 'параметров', 'параметров')}")
     else:
-        lines.append(f"реестр не найден: отработало {cov['checks_in_script']} встроенных проверок")
+        built_in = _qty(cov["checks_in_script"], "встроенная проверка",
+                        "встроенные проверки", "встроенных проверок")
+        lines.append("реестр не найден: "
+                     f"{_plural(cov['checks_in_script'], 'отработала', 'отработали', 'отработало')} "
+                     f"{built_in}")
     if first.get("blocking"):
         lines.append("блокирует: " + "; ".join(first["blocking"]))
         if _n(first.get("postponed")):
-            lines.append(f"остальные {first['postponed']} находок — после того, как это починят")
+            lines.append(f"{_plural(first['postponed'], 'остальная', 'остальные', 'остальные')} "
+                         f"{_qty(first['postponed'], 'находка', 'находки', 'находок')} "
+                         "— после того, как это починят")
     if report["fix_first"]:
         lines.append("чинить первым:")
         for item in report["fix_first"][:5]:
@@ -2750,7 +2782,8 @@ def read_pages_file(path: str) -> list[str]:
     if not urls:
         raise http_safe.CliError("--pages: список пуст", "bad_input")
     if len(urls) > MAX_PAGES:
-        raise http_safe.CliError(f"{len(urls)} адресов: предел {MAX_PAGES} за один запуск "
+        raise http_safe.CliError(f"{_qty(len(urls), 'адрес', 'адреса', 'адресов')}: "
+                                 f"предел {MAX_PAGES} за один запуск "
                                  "(сайт по умолчанию не обходится)", "too_many_urls")
     return urls
 

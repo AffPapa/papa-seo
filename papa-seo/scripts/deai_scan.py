@@ -27,6 +27,12 @@ import sys
 import unicodedata
 from collections import Counter
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ru_text  # noqa: E402
+
+_plural = ru_text.plural
+_qty = ru_text.num
+
 VERSION = "0.1.0"
 MAX_BYTES = 10 * 1024 * 1024
 STDOUT_HITS = 60
@@ -301,7 +307,8 @@ def scan(raw: str, genre: str = "marketing", lang: str = "auto") -> dict:
             continue
         if tag_run:
             decoded = "".join(c for _, c in tag_run)
-            add("hidden_instruction", "strong", tag_run[0][0], f"{len(tag_run)} тег-символов Unicode",
+            add("hidden_instruction", "strong", tag_run[0][0],
+                _qty(len(tag_run), "тег-символ", "тег-символа", "тег-символов") + " Unicode",
                 "невидимый текст тегами Unicode: удалить, автору показать расшифровку",
                 {"decoded_preview": decoded[:80]})
             tag_run = []
@@ -317,7 +324,8 @@ def scan(raw: str, genre: str = "marketing", lang: str = "auto") -> dict:
                 "удалить, если не нужен по типографике")
     if tag_run:
         decoded = "".join(c for _, c in tag_run)
-        add("hidden_instruction", "strong", tag_run[0][0], f"{len(tag_run)} тег-символов Unicode",
+        add("hidden_instruction", "strong", tag_run[0][0],
+            _qty(len(tag_run), "тег-символ", "тег-символа", "тег-символов") + " Unicode",
             "невидимый текст тегами Unicode", {"decoded_preview": decoded[:80]})
     zw_run = re.finditer(r"[\u200b\u200c\u200d\u2060]{5,}", text)
     for m in zw_run:
@@ -409,14 +417,17 @@ def scan(raw: str, genre: str = "marketing", lang: str = "auto") -> dict:
                     break
             if j - i + 1 >= 3:
                 runs.append({"paragraph": p_index + 1, "lengths": lens[i:j + 1]})
-                add("rhythm_run", "weak", start, f"{j - i + 1} предложения подряд по {lens[i:j + 1]} слов",
+                add("rhythm_run", "weak", start,
+                    f"{_qty(j - i + 1, 'предложение', 'предложения', 'предложений')} подряд "
+                    f"по {lens[i:j + 1]} слов",
                     "сломать серию перестановкой, не добавлением слов", {"paragraph": p_index + 1})
                 i = j + 1
             else:
                 i += 1
         triads = re.findall(r"\b[^\W\d_]+, [^\W\d_]+,? (?:и|and) [^\W\d_]+\b", ptext)
         if len(triads) >= 2:
-            add("triads", "weak", start, f"{len(triads)} перечня из трёх в абзаце",
+            add("triads", "weak", start,
+                f"{_qty(len(triads), 'перечень', 'перечня', 'перечней')} из трёх в абзаце",
                 "оставить, если перечень настоящий; искусственные тройки — до двух или четырёх",
                 {"paragraph": p_index + 1})
 

@@ -28,6 +28,10 @@ from urllib.parse import urlsplit, urlunsplit
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import http_safe  # noqa: E402
 import page_facts  # noqa: E402
+import ru_text  # noqa: E402
+
+_plural = ru_text.plural
+_qty = ru_text.num
 
 REGIONS = ["body", "main", "nav", "header", "footer", "aside", "other"]
 REGION_CODE = {r: i for i, r in enumerate(REGIONS)}

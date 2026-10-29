@@ -31,6 +31,10 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import http_safe  # noqa: E402
 import page_facts  # noqa: E402  (instruction patterns)
+import ru_text  # noqa: E402
+
+_plural = ru_text.plural
+_qty = ru_text.num
 
 MAX_ROBOTS_BYTES = 500 * 1024
 MAX_PATTERN_LEN = 2048

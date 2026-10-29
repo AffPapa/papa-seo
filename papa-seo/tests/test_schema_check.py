@@ -157,7 +157,7 @@ class BrokenPageTest(unittest.TestCase):
         row = rows_for(self.r, "markup.req_faqpage")[0]
         self.assertEqual(row["status"], "warn")
         self.assertEqual(row["severity"], "low")
-        self.assertIn("name у 1 вопросов", row["observation"])
+        self.assertIn("name у 1 вопроса", row["observation"])
         self.assertNotIn("обязательн", row["observation"].lower())
         self.expect("markup.req_localbusiness", "fail")  # нет address
         self.expect("markup.req_event", "fail")        # Place без address

@@ -33,6 +33,10 @@ from collections import Counter
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import http_safe  # noqa: E402
 import page_facts  # noqa: E402
+import ru_text  # noqa: E402
+
+_plural = ru_text.plural
+_qty = ru_text.num
 
 MAX_ENTITIES = 500
 MAX_DEPTH = 40
@@ -546,9 +550,10 @@ def _special(key: str, node: dict, via: str | None = None) -> list[str]:
                              or (_present(x, "item") and _sub_present(x.get("item"), "name")
                                  and _sub_present(x.get("item"), "url"))))
         if no_pos:
-            miss.append(f"position у {no_pos} пунктов")
+            miss.append(f"position у {_qty(no_pos, 'пункта', 'пунктов', 'пунктов')}")
         if no_url:
-            miss.append(f"url или item с item.name и item.url у {no_url} пунктов")
+            miss.append("url или item с item.name и item.url у "
+                        f"{_qty(no_url, 'пункта', 'пунктов', 'пунктов')}")
         return miss
     if key in ("question_page_qa", "question_page_faq"):
         qs = _deep_nodes(node.get("mainEntity"))
@@ -562,13 +567,14 @@ def _special(key: str, node: dict, via: str | None = None) -> list[str]:
             if not _sub_present(ans, "text"):
                 no_ans += 1
         if no_name:
-            miss.append(f"name у {no_name} вопросов")
+            miss.append(f"name у {_qty(no_name, 'вопроса', 'вопросов', 'вопросов')}")
         if no_ans:
-            miss.append(f"acceptedAnswer/suggestedAnswer с text у {no_ans} вопросов")
+            miss.append("acceptedAnswer/suggestedAnswer с text у "
+                        f"{_qty(no_ans, 'вопроса', 'вопросов', 'вопросов')}")
         if key == "question_page_qa":
             no_count = sum(1 for q in qs if _number(q.get("answerCount")) is None)
             if no_count:
-                miss.append(f"answerCount у {no_count} вопросов")
+                miss.append(f"answerCount у {_qty(no_count, 'вопроса', 'вопросов', 'вопросов')}")
         return miss
     if key == "review":
         types = _types_of(node)
@@ -909,8 +915,10 @@ def _visible_values(rows: Rows, entities: list, visible: str, hydration: dict | 
         rows.add("markup.visible_values", "skip",
                  "Значения подставляет браузер из состояния в скрипте ("
                  + ", ".join(hydration.get("markers") or ["встроенное состояние"])
-                 + f", {hydration.get('inline_js_bytes')} байт скрипта на "
-                   f"{hydration.get('words_visible')} слов текста): без рендера сверить с видимым "
+                 + f", {_qty(hydration.get('inline_js_bytes') or 0, 'байт', 'байта', 'байт')} "
+                   f"скрипта на "
+                   f"{_qty(hydration.get('words_visible') or 0, 'слово', 'слова', 'слов')} "
+                   f"текста): без рендера сверить с видимым "
                    "текстом нельзя",
                  value={k: hydration.get(k) for k in ("markers", "inline_js_bytes",
                                                        "words_visible", "bytes_per_word")},
@@ -979,8 +987,10 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
     broken = [b for b in jsonld_blocks if not b.get("parse_ok")]
     rows.add("markup.jsonld_parses", "fail" if broken else ("pass" if jsonld_blocks else "skip"),
              f"Не разбираются блоки JSON-LD: {len(broken)} из {len(jsonld_blocks)}" if broken
-             else (f"Все {len(jsonld_blocks)} блоков JSON-LD разбираются" if jsonld_blocks
-                   else "Блоков JSON-LD нет"),
+             else ("Единственный блок JSON-LD разбирается" if len(jsonld_blocks) == 1
+                   else (f"Все {_qty(len(jsonld_blocks), 'блок', 'блока', 'блоков')} "
+                         f"JSON-LD разбираются" if jsonld_blocks
+                         else "Блоков JSON-LD нет")),
              value=[{"line": b["line"], "error": b.get("error")} for b in broken[:10]] or None)
 
     entities: list[dict] = []
@@ -1009,7 +1019,9 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
     else:
         rows.add("markup.jsonld_context", "fail" if ctx_bad else "pass",
                  "; ".join(ctx_bad[:5]) if ctx_bad
-                 else f"@context на schema.org во всех {ctx_total} блоках", value=ctx_bad[:10] or None)
+                 else ("@context на schema.org в единственном блоке" if ctx_total == 1
+                       else f"@context на schema.org во всех {ctx_total} блоках"),
+                 value=ctx_bad[:10] or None)
 
     ids_seen: Counter = Counter()
     refs: list = []
@@ -1017,7 +1029,9 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
     for ent in entities[:MAX_ENTITIES]:
         check_entity(rows, ent, ids_seen, refs, canonical)
     if typed and not any(r["id"] == "markup.jsonld_type" for r in rows.rows):
-        rows.add("markup.jsonld_type", "pass", f"У всех {len(typed)} сущностей есть @type")
+        rows.add("markup.jsonld_type", "pass",
+                 "У единственной сущности есть @type" if len(typed) == 1
+                 else f"У всех {_qty(len(typed), 'сущности', 'сущностей', 'сущностей')} есть @type")
     for cid, msg in (("markup.placeholders", "Пустых значений и плейсхолдеров нет"),
                      ("markup.date_format", "Все даты по ISO 8601"),
                      ("markup.relative_urls", "Все адреса в разметке абсолютные"),
@@ -1028,7 +1042,8 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
     dup_ids = {k: v for k, v in ids_seen.items() if v > 1}
     rows.add("markup.id_duplicate", "fail" if dup_ids else ("pass" if ids_seen else "skip"),
              f"Повторяются @id: {len(dup_ids)}" if dup_ids
-             else (f"Все {len(ids_seen)} @id уникальны" if ids_seen else "@id не используются"),
+             else ("Единственный @id уникален" if len(ids_seen) == 1
+                   else (f"Все {len(ids_seen)} @id уникальны" if ids_seen else "@id не используются")),
              value=sorted(dup_ids)[:10] or None)
     dangling = sorted({r for r, _ in refs if r not in ids_seen})
     rows.add("markup.id_dangling", "warn" if dangling else ("pass" if refs else "skip"),

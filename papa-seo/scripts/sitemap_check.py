@@ -27,6 +27,10 @@ from xml.etree import ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import http_safe  # noqa: E402
+import ru_text  # noqa: E402
+
+_plural = ru_text.plural
+_qty = ru_text.num
 
 MAX_URLS = 50_000
 MAX_UNCOMPRESSED = 50 * 1024 * 1024
