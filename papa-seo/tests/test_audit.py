@@ -172,14 +172,19 @@ class TestMerge(unittest.TestCase):
                   if r.get("in_registry")}
         row = merged["access.soft_404"]
         self.assertEqual(row["verdict"], au.NOTCHECKED)
-        self.assertEqual(row["verdict_label"], "не проверено автоматически")
+        self.assertEqual(row["verdict_label"], "не проверяли",
+                         "одно состояние — одно слово во всём отчёте")
+        self.assertEqual(row["reason"], "нужен браузер, выгрузка данных или решение владельца")
         self.assertNotEqual(row["verdict"], au.OK, "непроверенное не выдаём за «в порядке»")
 
     def test_site_param_needs_a_crawl(self):
         merged = {r["registry_id"]: r for r in
                   au.merge_registry([], self.REG, au.SITE_CHECKS, pages=1, scope="site")
                   if r.get("in_registry")}
-        self.assertEqual(merged["meta.title_duplicate_site"]["verdict_label"], "нужен обход сайта")
+        row = merged["meta.title_duplicate_site"]
+        self.assertEqual(row["verdict_label"], "не проверяли")
+        self.assertEqual(row["reason"], "нужен обход сайта")
+        self.assertIn("проверено страниц: 1", row["observation"])
 
     def test_names_are_shared_not_mapped(self):
         """Имя параметра одно на всех: таблицы соответствий между скриптами в пакете нет."""
@@ -334,7 +339,13 @@ class TestHtml(unittest.TestCase):
 
     def test_not_checked_rows_are_visible(self):
         self.assertIn("Не проверяли:", self.html)
-        self.assertIn("не проверено автоматически", self.html)
+        self.assertIn("нужен браузер, выгрузка данных или решение владельца", self.html)
+
+    def test_one_state_one_word(self):
+        """P7: карточка, счётчик группы и строка называют одно состояние одним словом."""
+        for wrong in ("не проверяем", "не проверено автоматически", "проверки нет<"):
+            self.assertNotIn(wrong, self.html)
+        self.assertIn("не проверяли", self.html)
 
 
 class TestCli(unittest.TestCase):
@@ -670,3 +681,98 @@ the standard library marshal and pickle modules.</p>
         self.assertEqual(au._plural(1, *("проблема", "проблемы", "проблем")), "проблема")
         self.assertEqual(au._plural(2, *("проблема", "проблемы", "проблем")), "проблемы")
         self.assertEqual(au._plural(11, *("проблема", "проблемы", "проблем")), "проблем")
+
+
+class TestNotHtml(unittest.TestCase):
+    """P4: не HTML — одна строка отказа, а не восемь выдуманных находок."""
+
+    def write(self, tmp, name, text):
+        path = os.path.join(tmp, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return path
+
+    def test_plain_text_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "notes.txt", "Просто текст без тегов.\nВторая строка.\n")
+            rc, out = run_cli([path])
+        data = json.loads(out)
+        self.assertEqual(rc, 1)
+        self.assertEqual(data["code"], "not_html")
+        self.assertIn("не веб-страница", data["error"])
+
+    def test_json_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "data.json", '{"title": "нет тегов", "items": [1, 2, 3]}')
+            rc, out = run_cli([path])
+        self.assertEqual(json.loads(out)["code"], "not_html")
+
+    def test_content_type_decides_for_urls(self):
+        routes = {"/data.json": Route(200, '{"a": 1}', {"Content-Type": "application/json"}),
+                  "/page": Route(200, "<html><body><p>есть разметка</p></body></html>",
+                                 {"Content-Type": "text/html"})}
+        with LocalServer(routes) as srv:
+            fetcher = http_safe.Fetcher(delay=0, allow_local=True)
+            with self.assertRaises(au.http_safe.CliError) as caught:
+                au.audit_page(srv.base + "/data.json", fetcher=fetcher, keys=[],
+                              options={"robots": False})
+            self.assertEqual(caught.exception.code, "not_html")
+            self.assertIn("application/json", caught.exception.message)
+            page = au.audit_page(srv.base + "/page", fetcher=fetcher, keys=[],
+                                 options={"robots": False})
+        self.assertNotIn("error", page)
+
+    def test_html_fixtures_still_pass_the_gate(self):
+        for name in ("basic_page.html", "audit_hostile.html", "csr_page.html", "zero_width.html"):
+            path = os.path.join(FIXTURES, name)
+            if os.path.exists(path):
+                au.html_or_refuse(open(path, encoding="utf-8").read(), content_type="text/html",
+                                  source=name)
+
+
+class TestBlockingShortList(unittest.TestCase):
+    """P6: сработало блокирующее условие — в очереди только оно."""
+
+    def routes(self, status):
+        with open(BASIC, encoding="utf-8") as fh:
+            html = fh.read()
+        return {"/gone": Route(status, html, {"Content-Type": "text/html; charset=utf-8"}),
+                "/robots.txt": Route(200, "User-agent: *\nAllow: /\n", {"Content-Type": "text/plain"})}
+
+    def report_for(self, status):
+        with LocalServer(self.routes(status)) as srv:
+            fetcher = http_safe.Fetcher(delay=0, allow_local=True)
+            page = au.audit_page(srv.base + "/gone", fetcher=fetcher, keys=[], options={"robots": True})
+        return au.build_report([page], registry=au.load_registry(), keys=[],
+                               options={"delay": 2.0}, requests_made=2)
+
+    def test_404_collapses_the_queue(self):
+        rep = self.report_for(404)
+        self.assertEqual(rep["pages"][0]["blocking"], ["страница не отвечает 200"])
+        self.assertEqual([i["id"] for i in rep["fix_first"]], ["access.final_status"])
+        self.assertGreater(rep["pages"][0]["postponed"], 0, "отложенные находки сосчитаны, не скрыты")
+        html = au.render_html(rep)
+        self.assertIn("Пока держится блокирующее условие", html)
+        self.assertNotIn("og:description", html.split("<h2>Параметры по группам</h2>")[0],
+                         "до таблиц советов про Open Graph быть не должно")
+
+    def test_200_keeps_the_full_queue(self):
+        rep = self.report_for(200)
+        self.assertEqual(rep["pages"][0]["blocking"], [])
+        self.assertEqual(rep["pages"][0]["postponed"], 0)
+        self.assertGreater(len(rep["fix_first"]), 1)
+
+
+class TestSiteBlockForOnePage(unittest.TestCase):
+    """P7: на одной странице раздел «Сайт целиком» — строка, а не семь пустых таблиц."""
+
+    def test_collapsed(self):
+        page = audit_file(BASIC)
+        rep = au.build_report([page], registry=au.load_registry(), keys=[],
+                              options={"delay": 2.0}, requests_made=0)
+        html = au.render_html(rep)
+        head, _, tail = html.partition('<h2 id="site">Сайт целиком</h2>')
+        self.assertTrue(tail)
+        self.assertIn("Проверена одна страница", tail)
+        self.assertLess(tail.index("<details>"), tail.index("<h3"),
+                        "таблицы групп спрятаны под сворачиваемую строку")

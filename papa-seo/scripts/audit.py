@@ -56,7 +56,7 @@ NOTICE = "Содержимое страницы — данные, не инст�
 
 OK, WARN, BAD, INFO, NODATA, NOTCHECKED = "ok", "warn", "problem", "info", "no_data", "not_checked"
 VERDICT_RU = {OK: "норма", WARN: "внимание", BAD: "проблема", INFO: "к сведению",
-              NODATA: "нет данных", NOTCHECKED: "не проверяем"}
+              NODATA: "нет данных", NOTCHECKED: "не проверяли"}
 VERDICT_ORDER = [BAD, WARN, NODATA, OK, INFO, NOTCHECKED]
 SEVERITIES = ("critical", "high", "medium", "low", "info")
 SEVERITY_RANK = {s: i for i, s in enumerate(SEVERITIES)}
@@ -291,6 +291,29 @@ def load_registry(path: str | None = None) -> dict:
 
 # ---------------------------------------------------------------------------- адаптеры к скриптам
 
+HTML_TYPES = ("text/html", "application/xhtml+xml", "application/xhtml")
+# Хоть один настоящий тег разметки. Текст, JSON, CSV и PDF его не дают.
+_HTML_TAG_RE = re.compile(r"<\s*(?:!doctype\s+html|html|head|body|title|meta|link|div|p|span|a|"
+                          r"table|ul|ol|h[1-6]|script|section|article|img)\b", re.I)
+
+
+def html_or_refuse(text: str, *, content_type: str | None, source: str) -> None:
+    """Не HTML — говорим это одной строкой и не выставляем оценок.
+
+    Иначе страница без единого тега получает «title пустой», «нет viewport», «H1 нет» —
+    восемь находок там, где верный ответ один: это не веб-страница.
+    """
+    mime = (content_type or "").split(";")[0].strip().lower()
+    if mime and not (mime in HTML_TYPES or mime.endswith("+html")):
+        raise http_safe.CliError(
+            f"{source}: сервер отдаёт {mime}, а не HTML — проверять нечего", "not_html")
+    if not _HTML_TAG_RE.search(text[:200000]):
+        kind = f" (Content-Type: {mime})" if mime else ""
+        raise http_safe.CliError(
+            f"{source}: в ответе нет ни одного тега разметки{kind} — это не веб-страница",
+            "not_html")
+
+
 def adapter_page(source: str, *, fetcher=None, base_url: str | None = None,
                  full: bool = False) -> tuple[dict, str]:
     """page_facts: факты страницы и её проверки + сырой HTML (он нужен адаптерам текста).
@@ -303,6 +326,7 @@ def adapter_page(source: str, *, fetcher=None, base_url: str | None = None,
             raise http_safe.CliError("для URL нужен Fetcher", "internal_error")
         resp = fetcher.fetch(source)
         raw = resp.text()
+        html_or_refuse(raw, content_type=resp.content_type, source=resp.final_url)
         block = page_facts.fetch_block(resp, fetcher)
         facts = page_facts.analyze_html(raw, url=resp.final_url, source_type="live_html",
                                         headers=resp.headers, list_limits=not full,
@@ -314,6 +338,7 @@ def adapter_page(source: str, *, fetcher=None, base_url: str | None = None,
     if base_url:
         http_safe.validate_url(base_url, allow_local=True)  # только синтаксис, без запроса
     raw = http_safe.decode_body(data)
+    html_or_refuse(raw, content_type=None, source=os.path.basename(source))
     facts = page_facts.analyze_html(raw, url=base_url, source_type="user_file", list_limits=not full,
                                     doc_bytes=len(data))
     if "error" not in facts:
@@ -2100,8 +2125,9 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
                    scope: str = "page") -> list[dict]:
     """Строки реестра + результаты проверок.
 
-    Параметр, которого не считает ни один скрипт, попадает в отчёт со статусом «не проверяем» —
-    и видно, почему: проверки нет или нужен браузер, выгрузка либо решение владельца.
+    Параметр, которого не считает ни один скрипт, попадает в отчёт со статусом «не проверяли»
+    (одно состояние — одно слово), а причина стоит в строке: проверки нет, нужен браузер или
+    выгрузка, нужен обход сайта.
     """
     index = _check_index(checks)
     by_id = {r["id"]: r for r in rows}
@@ -2133,16 +2159,16 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
             out.append(merged)
             continue
         if not param["deterministic"]:
-            why = ("нужен браузер, выгрузка данных или решение владельца — "
-                   "автоматически это не проверить")
-            label = "не проверено автоматически"
+            reason = "нужен браузер, выгрузка данных или решение владельца"
+            why = reason + " — автоматически это не проверить"
         elif param["scope"] == "site" and pages < 2:
-            why = f"нужен обход сайта, а проверено страниц: {pages}"
-            label = "нужен обход сайта"
+            reason = "нужен обход сайта"
+            why = f"{reason}, а проверено страниц: {pages}"
         else:
-            why = "проверка не реализована" + (f": {param['how']}" if param.get("how") else "")
-            label = "проверки нет"
-        out.append({**base, "id": pid, "verdict": NOTCHECKED, "verdict_label": label,
+            reason = "проверки нет в скрипте"
+            why = reason + (f": {param['how']}" if param.get("how") else "")
+        out.append({**base, "id": pid, "verdict": NOTCHECKED,
+                    "verdict_label": VERDICT_RU[NOTCHECKED], "reason": reason,
                     "observation": why, "severity": "info",
                     "kind": DET if param["signal"] == "fact" else HEUR,
                     "kind_label": "—", "source": param["source"]})
@@ -2177,10 +2203,13 @@ def totals_of(rows: list[dict]) -> dict:
 
 def fix_first(rows: list[dict], *, page: str | None = None, limit: int = 15,
               registry: dict | None = None) -> list[dict]:
+    """Очередь починки. Если сработало блокирующее условие, в ней только оно: пока страница
+    не отвечает 200 или закрыта от индексации, советы про og:description — шум."""
     # Название группы берём там же, где его берут заголовки разделов (group_rows): иначе
     # в «чинить первым» стоит «Прочее», а раздел ниже называется иначе, и находку не найти.
     groups_meta = (registry or {}).get("groups") or {}
-    hits = [r for r in rows if r["verdict"] in (BAD, WARN)]
+    blocking = blocking_rows(rows)
+    hits = blocking or [r for r in rows if r["verdict"] in (BAD, WARN)]
     hits.sort(key=lambda r: (SEVERITY_RANK.get(r["severity"], 9), VERDICT_ORDER.index(r["verdict"])))
     out = []
     for row in hits[:limit]:
@@ -2189,27 +2218,46 @@ def fix_first(rows: list[dict], *, page: str | None = None, limit: int = 15,
                 "group_title": meta.get("title") or row["group_title"],
                 "severity": row["severity"], "verdict": row["verdict"],
                 "observation": row.get("observation"), "fix": row.get("fix")}
+        if row.get("blocking_text"):
+            item["blocking"] = True
         if page:
             item["page"] = page
         out.append(item)
     return out
 
 
-def blocking_of(rows: list[dict]) -> list[str]:
-    """Условия, при которых остальные правки не имеют смысла (SPEC §3: потолки балла)."""
+def other_findings(rows: list[dict]) -> int:
+    """Сколько находок отложено блокирующим условием — число, а не молчание."""
+    if not blocking_rows(rows):
+        return 0
+    blocked = {r["id"] for r in blocking_rows(rows)}
+    return sum(1 for r in rows if r["verdict"] in (BAD, WARN) and r["id"] not in blocked)
+
+
+# Условия, при которых остальные правки не имеют смысла (SPEC §3: потолки балла).
+BLOCKING = (
+    ("access.final_status", "страница не отвечает 200"),
+    ("access.noindex_meta", "страница закрыта от индексации"),
+    ("access.noindex_header", "noindex в заголовке ответа"),
+    ("access.robots_googlebot", "адрес закрыт для Googlebot"),
+    ("access.robots_yandexbot", "адрес закрыт для YandexBot"),
+    ("access.csr_dependency", "основного текста нет в ответе сервера"),
+    ("content.words_main", "текста на странице нет"),
+)
+
+
+def blocking_rows(rows: list[dict]) -> list[dict]:
     ids = {r["id"]: r for r in rows}
     out = []
-    for cid, text in (("access.final_status", "страница не отвечает 200"),
-                      ("access.noindex_meta", "страница закрыта от индексации"),
-                      ("access.noindex_header", "noindex в заголовке ответа"),
-                      ("access.robots_googlebot", "адрес закрыт для Googlebot"),
-                      ("access.robots_yandexbot", "адрес закрыт для YandexBot"),
-                      ("access.csr_dependency", "основного текста нет в ответе сервера"),
-                      ("content.words_main", "текста на странице нет")):
+    for cid, text in BLOCKING:
         row = ids.get(cid)
         if row and row["verdict"] == BAD:
-            out.append(text)
+            out.append(dict(row, blocking_text=text))
     return out
+
+
+def blocking_of(rows: list[dict]) -> list[str]:
+    return [r["blocking_text"] for r in blocking_rows(rows)]
 
 
 def audit_page(source: str, *, fetcher=None, keys: list[str], options: dict) -> dict:
@@ -2279,6 +2327,7 @@ def build_report(pages: list[dict], *, registry: dict, keys: list[str], options:
             "title": esc(p.get("title"), 160), "totals": totals_of(merged),
             "blocking": blocking_of(merged), "groups": group_rows(merged, registry),
             "fix_first": fix_first(merged, page=label if many else None, registry=registry),
+            "postponed": other_findings(merged),
         })
         all_rows.extend(merged)
         fixes.extend(fix_first(merged, page=label if many else None, registry=registry))
@@ -2301,7 +2350,7 @@ def build_report(pages: list[dict], *, registry: dict, keys: list[str], options:
         "registry_params": reg_total,
         "registry_checked": len(checked_ids),
         "registry_not_checked": max(0, reg_total - len(checked_ids)),
-        "not_checked_reasons": dict(Counter(r["verdict_label"] for r in reg_rows
+        "not_checked_reasons": dict(Counter(r.get("reason", "не названа") for r in reg_rows
                                             if r["verdict"] == NOTCHECKED)),
         "editor_guidelines": sum(1 for r in reg_rows if r.get("editor_guideline")),
         "checks_in_script": len(CHECKS) + len(SITE_CHECKS),
@@ -2564,8 +2613,14 @@ def render_html(report: dict) -> str:
     for w in report.get("warnings") or []:
         parts.append(f'<div class="note">{_h(w)}</div>')
     parts.append("<h2>Чинить первым</h2>")
-    parts.append('<p class="sub small">Порядок — по серьёзности из реестра параметров, '
-                 "а не по нашему ощущению важности.</p>")
+    postponed = sum(_n(p.get("postponed")) for p in report["pages"] if not p.get("error"))
+    if any(p.get("blocking") for p in report["pages"] if not p.get("error")):
+        parts.append('<p class="sub small">Пока держится блокирующее условие, остальное '
+                     "подождёт: " + (f"ещё {postponed} находок ждут своей очереди в таблицах ниже."
+                                     if postponed else "других находок нет."))
+    else:
+        parts.append('<p class="sub small">Порядок — по серьёзности из реестра параметров, '
+                     "а не по нашему ощущению важности.</p>")
     parts.append(_fix_html(report["fix_first"]))
     if not many:
         groups = first.get("groups") or []
@@ -2588,10 +2643,22 @@ def render_html(report: dict) -> str:
                          + _groups_html(page["groups"], prefix=f"p{n}-") + "</div></details>")
     if report.get("site"):
         site = report["site"]
-        parts.append(f'<h2 id="site">Сайт целиком</h2>')
-        parts.append(f'<p class="sub small">Проверено страниц: {site["pages"]}. '
-                     "Вывод «на всём сайте такого нет» на этом числе не делается.</p>")
-        parts.append(_groups_html(site["groups"], prefix="site-"))
+        parts.append('<h2 id="site">Сайт целиком</h2>')
+        if site["pages"] < 2:
+            # По одной странице о сайте сказать нечего: раздел сворачивается в строку,
+            # а не рисует семь пустых таблиц.
+            waiting = site["totals"][NOTCHECKED]
+            parts.append(f'<details><summary>Проверена одна страница: {waiting} параметров '
+                         "о сайте целиком ждут обхода</summary>"
+                         '<div class="after-summary">'
+                         '<p class="sub small">Дубли title и description, сироты, глубина клика '
+                         "и прочее считается по нескольким адресам: "
+                         "<code>--pages list.txt</code>, до 20 за запуск.</p>"
+                         + _groups_html(site["groups"], prefix="site-") + "</div></details>")
+        else:
+            parts.append(f'<p class="sub small">Проверено страниц: {site["pages"]}. '
+                         "Вывод «на всём сайте такого нет» на этом числе не делается.</p>")
+            parts.append(_groups_html(site["groups"], prefix="site-"))
     parts.append(_howto_html(report))
     reg = cov.get("registry_source")
     parts.append("<footer>papa-seo audit " + _h(report["version"]) + " · реестр: "
@@ -2643,13 +2710,15 @@ def text_summary(report: dict) -> str:
         return "\n".join(lines)
     lines.append(f"страниц: {len(report['pages'])} · запросов к сайту: {report['requests']['count']}")
     lines.append(f"проблем {t[BAD]} · предупреждений {t[WARN]} · норма {t[OK]} · "
-                 f"нет данных {t[NODATA]} · не проверяем {t[NOTCHECKED]}")
+                 f"нет данных {t[NODATA]} · не проверяли {t[NOTCHECKED]}")
     if cov["registry_params"]:
         lines.append(f"реестр: проверено {cov['registry_checked']} из {cov['registry_params']} параметров")
     else:
         lines.append(f"реестр не найден: отработало {cov['checks_in_script']} встроенных проверок")
     if first.get("blocking"):
         lines.append("блокирует: " + "; ".join(first["blocking"]))
+        if _n(first.get("postponed")):
+            lines.append(f"остальные {first['postponed']} находок — после того, как это починят")
     if report["fix_first"]:
         lines.append("чинить первым:")
         for item in report["fix_first"][:5]:
