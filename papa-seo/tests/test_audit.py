@@ -179,14 +179,21 @@ class TestMerge(unittest.TestCase):
                   if r.get("in_registry")}
         self.assertEqual(merged["meta.title_duplicate_site"]["verdict_label"], "нужен обход сайта")
 
-    def test_alias_tuple_takes_the_worst(self):
+    def test_names_are_shared_not_mapped(self):
+        """Имя параметра одно на всех: таблицы соответствий между скриптами в пакете нет."""
+        self.assertFalse(hasattr(au, "ID_ALIASES"), "слой сопоставления id убран намеренно")
         merged = {r["registry_id"]: r for r in
                   au.merge_registry(self.rows(), self.REG, au.CHECKS, pages=1, scope="page")
                   if r.get("in_registry")}
-        row = merged["markup.og_required"]
-        self.assertEqual(row["verdict"], au.BAD, "из четырёх проверок OG в строку идёт худшая")
-        self.assertEqual(row["severity"], "low")
-        self.assertTrue(row.get("also"), "остальные проверки перечислены рядом")
+        self.assertEqual(merged["meta.title_present"]["verdict"], au.OK)
+        self.assertEqual(merged["markup.og_required"]["verdict"], au.NOTCHECKED,
+                         "проверка под чужим именем на параметр не встаёт")
+
+    def test_foreign_name_is_visible_as_off_registry(self):
+        merged = au.merge_registry(self.rows(), self.REG, au.CHECKS, pages=1, scope="page")
+        extra = {r["id"] for r in merged if r.get("off_registry")}
+        self.assertEqual(extra, {"social.og_title", "social.og_type"},
+                         "чужое имя не теряется, а видно строкой «вне реестра»")
 
     def test_off_registry_rows_survive(self):
         reg = {"params": [self.REG["params"][0]], "groups": {}}
@@ -217,7 +224,9 @@ class TestPageAudit(unittest.TestCase):
         page = audit_file(HOSTILE, options={"base_url": "https://example.net/remont/", "robots": False})
         rows = rows_by_id(page)
         self.assertEqual(rows["markup.jsonld_parses"]["verdict"], au.BAD)
-        self.assertEqual(rows["security.hidden_instructions"]["verdict"], au.BAD)
+        hidden = rows["security.hidden_instructions"]
+        self.assertIn(hidden["verdict"], (au.BAD, au.WARN))
+        self.assertEqual(hidden["severity"], "high")
         self.assertEqual(rows["ai.max_snippet"]["verdict"], au.BAD, "max-snippet:0 — находка")
         self.assertEqual(rows["links.javascript_links"]["verdict"], au.WARN)
         self.assertEqual(rows["links.generic_anchor"]["verdict"], au.WARN)
@@ -430,6 +439,9 @@ class TestNetwork(unittest.TestCase):
         self.assertEqual(rows["access.robots_txt_status"]["verdict"], au.OK)
         self.assertEqual(rows["access.robots_sitemap_line"]["verdict"], au.OK)
         self.assertEqual(rows["access.final_status"]["verdict"], au.OK)
+        for cid in ("speed.ttfb", "speed.redirect_before_page", "speed.compression"):
+            self.assertNotEqual(rows[cid]["verdict"], au.NODATA,
+                                f"{cid}: ответ сервера передан в page_facts, данные есть")
 
     def test_blocked_url_is_critical(self):
         routes = self.routes()

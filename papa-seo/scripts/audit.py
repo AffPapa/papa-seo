@@ -254,88 +254,39 @@ def load_registry(path: str | None = None) -> dict:
 
 # Если идентификаторы в реестре разойдутся с нашими — правится только этот словарь.
 # Слева id из реестра, справа id проверки в этом файле.
-# Единственный слой сопоставления идентификаторов: параметр реестра → проверка, которая его
-# закрывает. Проверки этого файла названы по реестру и сюда не попадают; здесь — проверки,
-# которые считают другие скрипты пакета под своими именами. Несколько имён в кортеже = параметр
-# закрывают несколько проверок, в отчёт идёт худшая из них, остальные перечислены рядом.
-ID_ALIASES: dict[str, str | tuple[str, ...]] = {
-    # разметка соцсетей — page_facts, группа social
-    "markup.og_required": ("social.og_title", "social.og_type", "social.og_image", "social.og_url"),
-    "markup.og_description": "social.og_description",
-    "markup.og_image_alt": "social.og_image_alt",
-    "markup.og_image_size": "social.og_image_dimensions",
-    "markup.og_locale": "social.og_locale",
-    "markup.og_site_name": "social.og_site_name",
-    "markup.og_url_vs_canonical": "social.og_url_matches_canonical",
-    "markup.twitter_card": ("social.twitter_card", "social.twitter_card_value"),
-    "markup.format_preference": "social.og_in_head",
-    # язык и регионы
-    "intl.html_lang": "i18n.html_lang",
-    "intl.lang_valid": "i18n.html_lang_valid",
-    "intl.dir": ("i18n.dir_attr", "i18n.dir_valid"),
-    "intl.content_language": "i18n.content_language",
-    "intl.hreflang_codes": ("i18n.hreflang_code_valid", "i18n.hreflang_numeric_region"),
-    "intl.hreflang_self": "i18n.hreflang_self",
-    "intl.hreflang_x_default": "i18n.hreflang_x_default",
-    "intl.hreflang_absolute": "i18n.hreflang_absolute",
-    "intl.hreflang_duplicates": "i18n.hreflang_duplicate",
-    "intl.hreflang_present": "i18n.hreflang_present",
-    # иконки
-    "meta.favicon_declared": "icons.favicon",
-    "meta.favicon_crawlable": "icons.favicon_href",
-    # безопасность
-    "security.frame_options": "security.frame_protection",
-    "security.set_cookie_flags": "security.cookie_flags",
-    "security.mixed_content_active": "security.mixed_content",
-    "security.mixed_content_passive": "security.mixed_content_links",
-    "security.form_action_http": "markup.form_action_insecure",
-    # скорость и ресурсы
-    "speed.html_bytes": "speed.document_bytes",
-    "speed.resource_count_by_type": "speed.external_resources",
-    "speed.blocking_css": "speed.stylesheets",
-    "speed.inline_css_bytes": "speed.inline_bytes",
-    "speed.preload_hints": "speed.preload",
-    # изображения
-    "images.alt_is_filename": "images.alt_filename",
-    "images.alt_length": "images.alt_long",
-    "images.format": "images.modern_format",
-    "images.lazy_first_screen": "speed.lazy_lcp_candidate",
-    "images.fetchpriority_many": "speed.fetchpriority_high",
-    # структура документа и формы (page_facts, группа markup)
-    "content.tables_markup": ("markup.table_headers", "markup.table_caption", "markup.table_scope"),
-    "content.lists_present": "markup.lists",
-    "commerce.duplicate_ids": "markup.duplicate_id",
-    "commerce.anchor_targets": ("markup.broken_fragment", "markup.empty_fragment"),
-    "commerce.form_labels": ("markup.form_unlabelled", "markup.form_placeholder_only"),
-    "commerce.form_autocomplete": "markup.form_autocomplete",
-    # индексация и пагинация
-    "access.meta_refresh": "index.meta_refresh",
-    "access.pagination_rel": "index.pagination_rel",
-    "access.pagination_self_canonical": "index.pagination_canonical",
-    "access.pagination_href": "index.pagination_anchors",
-}
+# Имена параметров — общие: реестр, этот скрипт, page_facts и schema_check называют проверку
+# одним и тем же id (`access.final_status`, `markup.req_product`). Отдельной таблицы соответствий
+# нет намеренно: два источника правды разъезжаются молча. Проверка под чужим именем просто не
+# встанет на параметр реестра и попадёт в отчёт строкой «вне реестра» — это видно.
 
 
 # ---------------------------------------------------------------------------- адаптеры к скриптам
 
 def adapter_page(source: str, *, fetcher=None, base_url: str | None = None,
                  full: bool = False) -> tuple[dict, str]:
-    """page_facts: факты страницы + сырой HTML (он нужен адаптерам текста)."""
+    """page_facts: факты страницы и её проверки + сырой HTML (он нужен адаптерам текста).
+
+    Ответ сервера передаётся внутрь (`doc_bytes`, `fetch`): без него page_facts не может
+    посчитать время ответа, редиректы перед страницей и сертификат — и честно их пропускает.
+    """
     if http_safe.is_url(source):
         if fetcher is None:
             raise http_safe.CliError("для URL нужен Fetcher", "internal_error")
         resp = fetcher.fetch(source)
         raw = resp.text()
+        block = page_facts.fetch_block(resp, fetcher)
         facts = page_facts.analyze_html(raw, url=resp.final_url, source_type="live_html",
-                                        headers=resp.headers, list_limits=not full)
+                                        headers=resp.headers, list_limits=not full,
+                                        doc_bytes=len(resp.body), fetch=block)
         if "error" not in facts:
-            facts["fetch"] = page_facts.fetch_block(resp, fetcher)
+            facts["fetch"] = block
         return facts, raw
     data, truncated = http_safe.read_input_file(source, page_facts.MAX_HTML_BYTES)
     if base_url:
         http_safe.validate_url(base_url, allow_local=True)  # только синтаксис, без запроса
     raw = http_safe.decode_body(data)
-    facts = page_facts.analyze_html(raw, url=base_url, source_type="user_file", list_limits=not full)
+    facts = page_facts.analyze_html(raw, url=base_url, source_type="user_file", list_limits=not full,
+                                    doc_bytes=len(data))
     if "error" not in facts:
         facts["fetch"] = {"path": os.path.abspath(source), "bytes": len(data), "truncated": truncated,
                           "status": None}
@@ -475,48 +426,31 @@ FIELD_PATHS: dict[str, tuple[str, ...]] = {
     "description": ("page.meta_description",),
     "description_count": ("page.meta_description_count",),
     "lang": ("page.lang",),
-    "dir": ("page.dir", "page.html_dir"),
     "charset": ("page.charset",),
-    "viewport": ("page.viewport", "page.mobile.viewport"),
     "robots_meta": ("page.robots",),
     "noindex": ("page.noindex",),
     "canonical": ("page.canonical",),
     "canonical_header": ("page.canonical_header",),
-    "hreflang": ("page.hreflang",),
-    "meta_refresh": ("page.meta_refresh",),
     "headings": ("page.headings",),
     "heading_counts": ("page.heading_counts",),
     "links_summary": ("page.links_summary",),
     "links": ("page.links",),
     "images": ("page.images",),
-    "images_summary": ("page.images_summary",),
     "json_ld": ("page.json_ld",),
     "schema_types": ("page.schema_types",),
     "microdata_types": ("page.microdata_types",),
-    "open_graph": ("page.open_graph", "page.og"),
-    "og_missing": ("page.social.og_missing_required", "page.open_graph_missing"),
-    "twitter": ("page.twitter",),
     "words_main": ("page.words_main",),
     "words_visible": ("page.words_visible_raw_html",),
     "flags": ("page.flags",),
     "headers": ("page.headers",),
     "dates": ("page.dates",),
     "csr": ("page.csr",),
-    "hidden_instructions": ("page.hidden_instructions",),
     "invisible_chars": ("page.invisible_chars",),
     "ai_addressed": ("page.ai_addressed_visible_text",),
-    "fetch": ("page.fetch",),
     "status": ("page.fetch.status",),
     "chain": ("page.fetch.chain",),
     "final_url": ("page.fetch.final_url", "page.url"),
     "bytes": ("page.fetch.bytes", "page.resources.document_bytes"),
-    "scripts": ("page.scripts",),
-    "security": ("page.security",),
-    "resources": ("page.resources",),
-    "icons": ("page.icons.list", "page.icons"),
-    "markup_extra": ("page.markup",),
-    "pagination": ("page.pagination",),
-    "schema_validation": ("schema.validation", "page.schema_validation", "page.schema"),
     # текст (text_metrics)
     "text_counts": ("text.counts",),
     "text_lang": ("text.lang",),
@@ -536,8 +470,6 @@ FIELD_PATHS: dict[str, tuple[str, ...]] = {
     "robots_state": ("robots.state",),
     "robots_matrix": ("robots.matrix",),
     "robots_sitemaps": ("robots.sitemaps",),
-    "robots_clean_param": ("robots.clean_param",),
-    "sitemap_totals": ("sitemap.totals", "sitemap.counts"),
     "llms_txt": ("llms_txt",),
     "ai_txt": ("ai_txt",),
 }
@@ -843,30 +775,6 @@ def c_thin(ctx):
     return ok(f"{words} слов основного текста{note}", value=words)
 
 
-@check("access.url_shape", "access", "Вид адреса", severity="low", kind=HEUR,
-       source="ориентир редактора: Google требований к виду URL не предъявляет")
-def c_url(ctx):
-    url = ctx.url
-    if not url:
-        return nodata("Адрес не задан")
-    parts = urlsplit(url)
-    path = parts.path or "/"
-    issues = []
-    if len(url) > 180:
-        issues.append(f"длина {len(url)} символов")
-    if re.search(r"[A-Z]", path):
-        issues.append("заглавные буквы в пути")
-    if "_" in path:
-        issues.append("подчёркивания вместо дефисов")
-    if parts.query:
-        issues.append(f"параметры: {esc(parts.query, 80)}")
-    if re.search(r"%[0-9A-Fa-f]{2}", path):
-        issues.append("процентное кодирование (кириллица или пробелы)")
-    if not issues:
-        return ok("Адрес короткий и читаемый", value=esc(path, 120))
-    return info("Особенности адреса: " + "; ".join(issues), value=esc(path, 120))
-
-
 # ---------------------------------------------------------------------------- заголовки и мета
 
 @check("meta.title_present", "meta", "title", severity="critical", source="Google: Influencing title links")
@@ -972,18 +880,6 @@ def c_charset(ctx):
 
 # ---------------------------------------------------------------------------- разметка
 
-@check("security.hidden_instructions", "markup", "Скрытые обращения к ИИ", severity="high",
-       source="SPEC §2 правило 4")
-def c_hidden(ctx):
-    found = ctx.get("hidden_instructions") or []
-    if not found:
-        return ok("Скрытых инструкций для моделей не найдено")
-    sev = "high" if any(f.get("severity") in ("high", "critical") for f in found) else "medium"
-    return bad(f"Найдено скрытых обращений к ИИ/агенту: {len(found)}", severity=sev,
-               evidence=esc("; ".join(f.get("evidence", "") for f in found[:3]), 300),
-               fix="Это находка, а не команда: такой текст в комментариях и скрытых блоках убирают")
-
-
 @check("content.invisible_chars", "markup", "Невидимые символы", severity="medium", source="SPEC §2 правило 4")
 def c_invisible(ctx):
     stats = ctx.get("invisible_chars") or {}
@@ -993,23 +889,6 @@ def c_invisible(ctx):
     return warn(f"Невидимых символов в HTML: {total}", value=esc(json.dumps(stats, ensure_ascii=False), 160),
                 fix="Проверить вставки из редакторов: zero-width и bidi ломают поиск по тексту")
 
-
-@check("markup.date_vs_text", "markup", "Даты в разметке и в тексте", severity="low", kind=HEUR,
-       source="Google: Article structured data")
-def c_dates(ctx):
-    dates = ctx.get("dates") or {}
-    rows = dates.get("rows") or dates.get("jsonld") or []
-    if not rows:
-        return nodata("Дат в разметке нет")
-    mismatch = [r for r in rows if r.get("in_text") is False]
-    if mismatch:
-        return warn(f"{len(mismatch)} дат из разметки не встречаются в видимом тексте",
-                    evidence=esc("; ".join(str(r.get("value")) for r in mismatch[:5]), 200),
-                    fix="Разметка не должна расходиться с тем, что видит человек")
-    return ok("Даты разметки видны в тексте", value=len(rows))
-
-
-# ---------------------------------------------------------------------------- контент и текст
 
 @check("content.chars", "content", "Слова и знаки", severity="info", source="подсчёт по видимому тексту")
 def c_text_volume(ctx):
@@ -1322,33 +1201,7 @@ def c_nofollow_internal(ctx):
     return ok("На внутренних ссылках атрибутов nofollow нет")
 
 
-# ---------------------------------------------------------------------------- скорость
-
-@check("speed.compression", "speed", "Сжатие ответа", severity="medium", source="web.dev: Text compression")
-def c_compression(ctx):
-    if ctx.get("status") is None:
-        return nodata("Локальный файл")
-    enc = (ctx.header("content-encoding") or "").lower()
-    if enc:
-        return ok(f"Сжатие включено: {esc(enc, 40)}", value=enc)
-    return warn("Ответ отдаётся без сжатия", fix="Включить gzip или brotli на сервере или CDN")
-
-
-@check("speed.cache_control", "speed", "Кэширование", severity="low", source="web.dev: HTTP caching")
-def c_cache(ctx):
-    if ctx.get("status") is None:
-        return nodata("Локальный файл")
-    cc = ctx.header("cache-control")
-    if not cc:
-        return info("Заголовка Cache-Control нет: для HTML это нормально, для статики — нет")
-    return info(f"Cache-Control: {esc(cc, 120)}", value=esc(cc, 120))
-
-
 # ---------------------------------------------------------------------------- AI-поиск
-
-AI_BOTS = ("GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-SearchBot",
-           "PerplexityBot", "Google-Extended", "YandexAdditional")
-
 
 @check("ai.search_bots_access", "ai", "Доступ для AI-ботов", severity="medium",
        source="references/ai-bots.yaml (документация вендоров)")
@@ -1515,14 +1368,14 @@ def c_doc_size(ctx):
     size = _n(ctx.get("bytes"))
     if not size:
         return nodata("Размер неизвестен")
-    mb = round(size / 1048576, 2)
+    human = f"{round(size / 1024)} КБ" if size < 1048576 else f"{round(size / 1048576, 1)} МБ"
     if size > 15 * 1048576:
-        return bad(f"HTML больше 15 МБ ({mb} МБ): остальное Googlebot не прочитает", value=mb,
+        return bad(f"HTML больше 15 МБ ({human}): остальное Googlebot не прочитает", value=human,
                    severity="high", fix="Разгрузить документ: лишнее — в отдельные файлы")
     if size > 10 * 1048576:
-        return warn(f"HTML близок к лимиту чтения: {mb} МБ из 15", value=mb,
+        return warn(f"HTML близок к лимиту чтения: {human} из 15 МБ", value=human,
                     fix="Смотреть, что весит: инлайн-данные, повторы шаблона")
-    return ok(f"{mb} МБ при лимите чтения 15 МБ", value=mb)
+    return ok(f"{human} при лимите чтения 15 МБ", value=human)
 
 
 @check("access.nav_without_href", "access", "Навигация без a href", severity="medium",
@@ -1583,32 +1436,44 @@ def c_canonical_absolute(ctx):
 
 URL_CHECKS = (
     ("access.url_underscore", "Подчёркивания в пути", "low",
-     lambda path, parts: ("_" in path, "в пути есть подчёркивания", "Дефис читается поисковиком как разделитель слов, подчёркивание — нет")),
+     lambda path, parts: ("_" in path, "в пути есть подчёркивания", "В пути подчёркиваний нет",
+                          "Дефис читается поисковиком как разделитель слов, подчёркивание — нет")),
     ("access.url_length", "Длина URL", "info",
-     lambda path, parts: (False, f"{len(parts.geturl())} символов", None)),
+     lambda path, parts: (False, "", f"{len(parts.geturl())} символов", None)),
     ("access.url_depth", "Глубина пути", "info",
-     lambda path, parts: (False, f"{len([s for s in path.split('/') if s])} уровней", None)),
+     lambda path, parts: (False, "", f"{len([s for s in path.split('/') if s])} уровней", None)),
     ("access.url_case", "Верхний регистр в пути", "low",
-     lambda path, parts: (bool(re.search(r"[A-ZА-Я]", path)), "в пути есть заглавные буквы", "Адреса чувствительны к регистру: разный регистр — разные страницы")),
-    ("access.url_encoding", "Кодирование не-ASCII", "low",
-     lambda path, parts: (bool(re.search(r"%[0-9A-Fa-f]{2}", path)), "путь закодирован процентами", "Так и должно быть для кириллицы; просто помните, что в отчётах и логах адрес будет нечитаемым")),
+     lambda path, parts: (bool(re.search(r"[A-ZА-Я]", path)), "в пути есть заглавные буквы",
+                          "В пути только строчные буквы",
+                          "Адреса чувствительны к регистру: разный регистр — разные страницы")),
+    ("access.url_encoding", "Кодирование не-ASCII", "info",
+     lambda path, parts: (bool(re.search(r"%[0-9A-Fa-f]{2}", parts.path or "")),
+                          "путь закодирован процентами — так и должно быть для кириллицы, "
+                          "но в логах и отчётах адрес будет нечитаемым",
+                          "Путь в ASCII, процентного кодирования нет", None)),
     ("access.url_session_params", "Параметры сессии", "low",
-     lambda path, parts: (bool(re.search(r"(?:^|&)(?:sid|sessionid|phpsessid|jsessionid)=", parts.query, re.I)), "в адресе параметр сессии", "Параметр сессии в ссылках плодит дубли: убрать или закрыть Clean-param")),
+     lambda path, parts: (bool(re.search(r"(?:^|&)(?:sid|sessionid|phpsessid|jsessionid)=", parts.query, re.I)),
+                          "в адресе параметр сессии", "Параметров сессии в адресе нет",
+                          "Параметр сессии в ссылках плодит дубли: убрать или закрыть Clean-param")),
 )
 
 
 def _make_url_check(cid, title, severity, fn):
     @check(cid, "access", title, severity=severity,
            source="ориентир редактора: требований к виду URL у Google нет")
-    def _fn(ctx, _fn=fn):
+    def _fn(ctx, _fn=fn, _sev=severity):
         url = ctx.url
         if not url:
             return nodata("Адрес не задан")
         parts = urlsplit(url)
-        hit, text, fix = _fn(unquote(parts.path or "/") if "%" not in (parts.path or "") else (parts.path or "/"), parts)
+        raw = parts.path or "/"
+        hit, hit_text, ok_text, fix = _fn(unquote(raw) if "%" in raw else raw, parts)
+        shown = esc(parts.path, 120)
+        if _sev == "info":
+            return info(hit_text if hit else ok_text, value=shown)
         if hit:
-            return warn(text, value=esc(parts.path, 120), fix=fix)
-        return ok(text, value=esc(parts.path, 120))
+            return warn(hit_text, value=shown, fix=fix)
+        return ok(ok_text, value=shown)
     return _fn
 
 
@@ -1874,43 +1739,6 @@ def c_target_blank(ctx):
         return info(f"Ссылок в новое окно без rel=noopener: {len(risky)}",
                     value=len(risky))
     return ok("Таких ссылок нет")
-
-
-@check("speed.ttfb", "speed", "Время ответа", severity="medium", kind=HEUR,
-       source="измерено одним запросом — это не полевые данные")
-def c_ttfb(ctx):
-    ms = _n(dig(ctx.bundle, "page.fetch.elapsed_ms"))
-    if not ms:
-        return nodata("Время ответа не измеряли (локальный файл)")
-    text = f"{ms} мс на запрос и тело ответа, один замер из нашей сети"
-    if ms > 2000:
-        return warn("Медленный ответ: " + text, value=ms,
-                    fix="Один замер — не диагноз: повторить и смотреть серверные метрики")
-    if ms > 800:
-        return info(text, value=ms)
-    return ok(text, value=ms)
-
-
-@check("speed.redirect_before_page", "speed", "Редиректы перед страницей", severity="medium",
-       source="web.dev: каждый редирект — отдельный круг до сервера")
-def c_redirect_cost(ctx):
-    chain = ctx.get("chain") or []
-    hops = max(0, len(chain) - 1)
-    if not chain:
-        return nodata("Нет данных о запросе")
-    if hops >= 2:
-        return warn(f"До страницы {hops} редиректа: каждый стоит круг до сервера", value=hops,
-                    fix="Ссылаться сразу на конечный адрес")
-    return ok("Лишних кругов нет", value=hops)
-
-
-@check("speed.scripts_count", "speed", "Число скриптов", severity="low", kind=HEUR,
-       source="ориентир редактора")
-def c_scripts_count(ctx):
-    s = ctx.get("scripts") or {}
-    if not s:
-        return nodata("Скрипты не разбирали")
-    return info(f"всего {s.get('total')}, внешних {s.get('external')}", value=s.get("total"))
 
 
 AI_BOT_GROUPS = (
@@ -2216,31 +2044,13 @@ def _check_index(checks: list[Check]) -> dict:
     return index
 
 
-VERDICT_WEIGHT = {BAD: 0, WARN: 1, NODATA: 2, OK: 3, INFO: 4, NOTCHECKED: 5}
-
-
-def _alias_rows(pid: str, by_id: dict, index: dict) -> list[dict]:
-    """Все строки, которые закрывают параметр реестра: по его id, по алиасу, по короткому имени."""
-    targets = ID_ALIASES.get(pid, ())
-    if isinstance(targets, str):
-        targets = (targets,)
-    candidates = [pid, *targets]
+def _row_for(pid: str, by_id: dict, index: dict) -> dict | None:
+    """Строка под параметр реестра: по его id. Имена общие, подбирать ничего не нужно."""
+    row = by_id.get(pid)
+    if row is not None:
+        return row
     chk = index.get(pid)
-    if chk is not None:
-        candidates.append(chk.id)
-    short = pid.split(".", 1)[-1]
-    rows, seen = [], set()
-    for cand in candidates:
-        row = by_id.get(cand)
-        if row is not None and row["id"] not in seen:
-            seen.add(row["id"])
-            rows.append(row)
-    if not rows:  # последняя попытка: совпадение по короткому имени (в реестре они уникальны)
-        for rid, row in by_id.items():
-            if rid.split(".", 1)[-1] == short:
-                rows.append(row)
-                break
-    return sorted(rows, key=lambda r: VERDICT_WEIGHT.get(r["verdict"], 9))
+    return by_id.get(chk.id) if chk is not None else None
 
 
 def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pages: int = 1,
@@ -2258,7 +2068,7 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
         if param["scope"] != scope:
             continue
         pid = param["id"]
-        found = _alias_rows(pid, by_id, index)
+        row = _row_for(pid, by_id, index)
         base = {
             "registry_id": pid, "group": param["group"],
             "group_title": GROUP_TITLE.get(param["group"], param["group"]),
@@ -2267,8 +2077,7 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
             "registry_status": param["status"], "scope": param["scope"],
             "editor_guideline": param["editor_guideline"], "in_registry": True,
         }
-        if found:
-            row = found[0]
+        if row is not None:
             merged = dict(row, **base)
             merged["id"] = row["id"]
             if merged["verdict"] in (BAD, WARN):
@@ -2277,11 +2086,6 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
             if param["signal"] == "estimate":
                 merged["kind"] = HEUR
                 merged["kind_label"] = KIND_RU[HEUR]
-            if len(found) > 1:
-                extra = [f"{r['title']}: {VERDICT_RU[r['verdict']]}" for r in found[1:]]
-                merged["also"] = extra
-                for r in found[1:]:
-                    used.add(r["id"])
             used.add(row["id"])
             out.append(merged)
             continue
@@ -2602,8 +2406,6 @@ def _row_html(row: dict) -> str:
         cell.append(f'<div>{_h(row["observation"])}</div>')
     if row.get("evidence"):
         cell.append(f'<div class="ev">{_h(row["evidence"])}</div>')
-    if row.get("also"):
-        cell.append('<div class="ev">рядом: ' + _h("; ".join(map(str, row["also"]))) + "</div>")
     what = row.get("registry_what")
     name = (f'<b>{_h(row["title"])}</b>'
             + (f'<div class="ev">{_h(what)}</div>' if what else "")
