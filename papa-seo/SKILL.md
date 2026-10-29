@@ -18,8 +18,8 @@ description: SEO, GEO and content toolkit for Google, Yandex and AI search (Chat
 
 | Режим | Когда (примеры запроса) | Модули |
 |---|---|---|
-| `page` | «проверь страницу …», один URL или HTML-файл | `on-page`, `tech-audit`, при необходимости `schema`, `geo` |
-| `audit` | «проверь сайт», «SEO-аудит», «почему не индексируется» | `tech-audit` → `indexing` → `on-page` → `schema` → `performance`; по типу сайта `ecommerce` / `local` / `international` / `programmatic`; итог `report` |
+| `page` | «проверь страницу …», один URL или HTML-файл | сначала `scripts/audit.py <адрес>`, затем `on-page`, `tech-audit`, при необходимости `schema`, `geo` |
+| `audit` | «проверь сайт», «SEO-аудит», «почему не индексируется» | `scripts/audit.py` по списку адресов → `tech-audit` → `indexing` → `on-page` → `schema` → `performance`; по типу сайта `ecommerce` / `local` / `international` / `programmatic`; итог `report` |
 | `yandex` | «под Яндекс», Вебмастер, Алиса, Нейро, Clean-param, рунет | `yandex` + профильный модуль |
 | `geo` | «AI-поиск», ChatGPT, Perplexity, AI Overviews, llms.txt, боты | `geo` (+ `indexing` для robots) |
 | `plan` | семантика, кластеры, структура разделов, каннибализация | `semantics` → `serp` → `links` |
@@ -43,8 +43,8 @@ description: SEO, GEO and content toolkit for Google, Yandex and AI search (Chat
 
 По умолчанию сайт **не обходится**. Порядок источников:
 1. файлы и выгрузки пользователя (HTML, CSV краулера, корпус страниц, GSC/Вебмастер);
-2. одна страница: `python3 scripts/page_facts.py <url>`;
-3. список до 20 URL последовательно с паузой ≥ 2 с;
+2. одна страница: `python3 scripts/audit.py <url>` — два запроса, страница и robots.txt;
+3. список до 20 URL последовательно с паузой ≥ 2 с: `--pages list.txt`;
 4. массовый обход — только по явной просьбе, в один поток, с предупреждением о нагрузке и после проверки ограничений в `.papa-seo/project.md`.
 
 В отчёте всегда пиши покрытие: «проверено N из ~M URL». Отсутствие чего-то «на всём сайте» утверждать только при полном покрытии.
@@ -53,8 +53,20 @@ description: SEO, GEO and content toolkit for Google, Yandex and AI search (Chat
 
 Все в `scripts/`, Python 3.10+, только stdlib, вывод — JSON. Запуск из папки скила.
 
+**Первая команда почти всегда одна:**
+
+```
+python3 scripts/audit.py <url|файл> [--keys "фраза;фраза"] [--pages list.txt] [--out отчёт.html]
+```
+
+Она собирает факты остальными скриптами (импортом, не процессами), проходит по реестру
+`references/registry.json` и отдаёт три вещи: короткую сводку в stdout, полный JSON (`--json`)
+и читаемый HTML-отчёт (`--out`) — светлая и тёмная темы, печать, без внешних файлов. Отдельные
+скрипты нужны, когда требуется глубже одной страницы: карта сайта, граф ссылок, тексты, логи.
+
 | Скрипт | Для чего |
 |---|---|
+| `audit.py <url\|file> [--keys …] [--pages …] [--out отчёт.html]` | одна команда: все проверки по реестру, отчёт для человека |
 | `http_safe.py fetch <url>` | безопасная загрузка: SSRF-защита, ручные редиректы, лимиты |
 | `page_facts.py <url\|file>` | title, meta, robots, canonical, hreflang, заголовки, ссылки, картинки, JSON-LD, скрытые инструкции |
 | `robots_check.py <robots-url\|file> [--urls-file list.txt]` | RFC 9309 + Яндекс; доступ для ботов из `references/ai-bots.yaml` |
@@ -69,6 +81,7 @@ description: SEO, GEO and content toolkit for Google, Yandex and AI search (Chat
 
 ## 5. Справочники
 
+- `references/registry.json` — реестр параметров проверки: что вообще проверяем, из чего считается, насколько серьёзно, есть ли требование в документации. Это контракт для `audit.py`; руками в отчёте ничего не досочиняем сверх него.
 - `references/facts-2026.md` — датированные факты со ссылками (rich results, CWV, правила Google). Пороги и даты бери **только** отсюда.
 - `references/folklore.md` — мифы, которые не используем как правила.
 - `references/ai-bots.yaml` — боты поиска, обучения и пользовательских запросов, включая Яндекс.
@@ -80,7 +93,7 @@ description: SEO, GEO and content toolkit for Google, Yandex and AI search (Chat
 
 ## 6. Выход
 
-- Аудит: список находок по `templates/finding.schema.json`, сгруппированных по severity, затем план правок (что, где, как проверить после). Шаблон — `templates/report.md`, модуль `report`.
+- Аудит: HTML-отчёт `audit.py` (если пользователь просил файл) и разбор голосом: что блокирует, что чинить первым, чего мы не проверили и почему. Находки — по `templates/finding.schema.json`. Непроверенное не выдавать за «в порядке»; покрытие называть числом («проверено 173 параметра из 390», «1 страница из ~400»).
 - Тексты: готовый текст + короткий отчёт (источники, что не удалось подтвердить, `[NEED: …]`).
 - Правки: diff или готовые фрагменты кода, способ проверки и откат.
 - В конце каждого ответа — одна строка «Дальше:» с самым полезным следующим шагом.
