@@ -61,7 +61,7 @@ description: SEO, GEO and content toolkit for Google, Yandex and AI search (Chat
 | `sitemap_check.py <url\|file>` | структура, лимиты, lastmod, чужие хосты — без обхода URL |
 | `link_graph.py <edges.csv\|dir>` | сироты, глубина, входящие, PageRank |
 | `bot_verify.py <ips\|log>` | подлинность Googlebot / YandexBot / Bingbot через rDNS |
-| `text_metrics.py <file> [--keys …]` | слова, збп, тошнота, вода (оценка), плотность по основам, ритм |
+| `text_metrics.py <file> [--keys …] [--url …] [--compare до после]` | слова, збп, тошнота, вода (оценка), ключи по зонам (title, H1, первый абзац, alt, анкоры, URL) точно и по основам, повторы фраз, канцелярит, пассив, читаемость, ритм |
 | `deai_scan.py <file>` | штампы, артефакты чат-ботов, невидимые символы, однообразный ритм |
 | `factdiff.py <before> <after>` | что пропало и появилось: числа, даты, деньги, URL, имена |
 
