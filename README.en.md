@@ -6,7 +6,8 @@ An SEO, GEO and content skill for Claude Code and OpenAI Codex: audits a page or
 
 It isn't a hosted SEO tool. The skill runs inside your coding agent, reads the live HTML and the exports you give it, and attaches evidence to every claim it makes about your site.
 
-- Audits one page or a sample of URLs: indexability, canonical, robots.txt, sitemaps, structured data, Core Web Vitals, internal links. Each finding quotes the HTML and carries a status: `confirmed`, `likely` or `hypothesis`.
+- Audits a page with one command: `python3 scripts/audit.py <url>` — two requests to the site, an HTML report with a fix-first queue. Behind that command is a registry of **415 parameters** in 13 groups: indexability, canonical, robots.txt, sitemaps, structured data, speed, mobile, security, internal links, text. Every parameter records what it is computed from and whether a search engine actually requires it.
+- **It doesn't pass advice off as a requirement.** Where the documentation states no requirement, the row is marked "editor guideline" — our opinion, not a Google rule; 77 parameters carry that mark, and a guard test refuses to let them be called required. Each finding quotes the HTML and carries a status: `confirmed`, `likely` or `hypothesis`.
 - Has a separate Yandex track (YandexAdditional, Clean-param, Yandex Webmaster, commercial signals).
 - For AI search, checks whether a page can show up in ChatGPT search, Perplexity, Google AI Overviews and Yandex Alice AI answers, which bots robots.txt lets in and whether a WAF blocks them. llms.txt is treated as optional.
 - Writes content briefs and sourced articles, refreshes old pages, edits and de-AIs Russian and English text. `factdiff.py` shows which numbers, dates and links an edit dropped.
@@ -114,7 +115,7 @@ ChatGPT has no skills folder, so this text isn't a command: it's the opening of 
 Build a zip for uploading the papa-seo skill to claude.ai. Run git clone https://github.com/AffPapa/papa-seo.git into a temporary folder, copy the papa-seo/ folder to a separate directory, and in its SKILL.md replace the description value in the frontmatter with this line (all of it, on one line): "SEO, GEO and content skill for Google, Yandex and AI search: page and site audits with evidence, briefs, articles, de-AI editing in RU/EN. Use for SEO audits, robots, schema, titles, SEO texts.". Change nothing else in the files. Pack it so that papa-seo/ is the root of the archive: cd into the directory that holds papa-seo and run zip -r papa-seo.zip papa-seo. Tell me the archive path. Don't install anything into my skills folders.
 ```
 
-This prompt is for an agent with files (Claude Code or similar); claude.ai itself won't build the zip. Then by hand: Customize → Skills → "+" → Upload a skill, with code execution on. claude.ai caps description at 200 characters and the pack's is 560, so the upload fails without the replacement. The skill triggers from its description; remove it with the toggle → "…" → Delete. With syncClaudeAiSkills on it also shows up in Claude Code under ~/.claude/skills/synced/.
+This prompt is for an agent with files (Claude Code or similar); claude.ai itself won't build the zip. Then by hand: Customize → Skills → "+" → Upload a skill, with code execution on. claude.ai caps description at 200 characters and the pack's is 948, so the upload fails without the replacement. The skill triggers from its description; remove it with the toggle → "…" → Delete. With syncClaudeAiSkills on it also shows up in Claude Code under ~/.claude/skills/synced/.
 
 </details>
 
@@ -183,9 +184,9 @@ npx skills add finds papa-seo/SKILL.md in the repository (checked 2026-10-26), p
 <summary>Download</summary>
 
 - [Download zip (main)](https://github.com/AffPapa/papa-seo/archive/refs/heads/main.zip)
-- [Release v0.1.1](https://github.com/AffPapa/papa-seo/releases/tag/v0.1.1)
+- [Release v0.2.0](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.0)
 
-main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.1.1 is papa-seo-0.1.1.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
+main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.2.0 is papa-seo-0.2.0.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
 
 </details>
 ### Project context
@@ -194,7 +195,36 @@ If the project root has `.papa-seo/project.md`, the skill reads it before pickin
 
 ## Try it in a minute
 
-### SEO audit of one page: does the markup match the text?
+### One command: audit a page, get a report
+
+```bash
+python3 scripts/audit.py https://affpapa.org/neevents --keys "конференции iGaming; афиша конференций" --out report.html
+```
+
+Two requests to the site — the page and `robots.txt`. Everything else is computed locally. Real output, run on 2026-10-30 — the header prints UTC, where it was still the 29th. The summary is in Russian, like the rest of the skill:
+
+```text
+papa-seo audit 0.2.0 · 2026-10-29T22:14:59Z UTC
+адрес: https://affpapa.org/neevents
+страниц: 1 · запросов к сайту: 2
+проблем 1 · предупреждений 15 · норма 152 · нет данных 19 · не проверяли 190
+реестр: проверено 225 из 415 параметров
+чинить первым:
+  medium: Выведенный тип ради выдачи — FAQPage: FAQ rich result объявлен 08.05.2026, не показывается с 07.05.2026, документация снята 15.06.2026. Разметка не вредит, но карточек в выдаче не даёт.
+  medium: Обязательные и рекомендуемые поля: ItemList / Carousel — ItemList / Carousel: документация Google требует всё, что нужно; из рекомендуемых нет — name
+  medium: Ключ в H1 — Ни одной фразы: конференции iGaming; афиша конференций
+  medium: Ключ не встречается нигде — Не встречается нигде: афиша конференций
+  low: Дубли @id — Повторяются @id: 1
+HTML-отчёт: report.html
+```
+
+That is our own page and the findings on it are real: FAQPage is marked up for a rich result Google no longer shows, and the second keyword appears nowhere on the page.
+
+`report.html` holds tables for all thirteen groups; every row carries a status, a value, an evidence snippet and the fix. It opens offline, has light and dark themes and prints. The same data machine-readable: `--json report.json`. Up to twenty URLs at once: `--pages list.txt`.
+
+What the report has not got: an "SEO 87/100" score. Such a score is assembled from weights nobody ever published. What it doesn't hide: 190 parameters went unchecked on this page, each with a reason — no check implemented, needs a site crawl, needs a browser or an export. Unchecked never reads as fine.
+
+### Audit a page through the agent: does the markup match the text?
 
 ```text
 papa-seo page https://affpapa.org/neevents/piterskie-razborki — compare dates and times in the JSON-LD with what the page says.
@@ -629,7 +659,19 @@ A URL with no counterpart goes to 404/410, not to the home page. Rollback criter
 
 You can run the same checks by hand. Run them from the skill folder (for example `cd ~/.claude/skills/papa-seo`); output is JSON.
 
+The first one is usually enough: `audit.py` calls the others itself and collects their output into one report. The individual scripts are for when the result feeds into something of your own.
+
 ```bash
+# everything about a page in one command: summary, HTML report, machine-readable JSON
+python3 scripts/audit.py https://example.com/services/ --keys "kitchen laminate; waterproof laminate" \
+  --out report.html --json report.json
+
+# up to 20 URLs one by one with a pause of at least 2 seconds, plus site-wide checks
+python3 scripts/audit.py --pages urls.txt --out report.html
+
+# which parameters this version can compute, and from what
+python3 scripts/audit.py --list-checks
+
 # robots.txt access table for search and AI bots
 python3 scripts/robots_check.py https://example.com/robots.txt --url / --url /catalog/?utm_source=x \
   --bots Googlebot,YandexBot,YandexAdditional,OAI-SearchBot,GPTBot,ClaudeBot --out robots.json
@@ -654,7 +696,7 @@ python3 scripts/deai_scan.py article.md --genre expert --lang en --out scan.json
 python3 scripts/factdiff.py before.md after.md --out diff.json
 ```
 
-Two more: `text_metrics.py` counts length, keyword stems and density (as an estimate), and `bot_verify.py` checks from a log whether Googlebot, YandexBot or Bingbot is real. Every script has `--help`.
+Three more: `text_metrics.py` counts length, keyword placement by zone, density and readability (as an estimate) and has a `--compare before after` mode; `schema_check.py` parses JSON-LD and microdata on their own; `bot_verify.py` checks from a log whether Googlebot, YandexBot or Bingbot is real. Every script has `--help`.
 
 ## What's inside
 
@@ -663,9 +705,9 @@ papa-seo/
   SKILL.md       router: request → mode → modules
   policies/      security, evidence rules, permission ladder
   modules/       29 modules, one file per function
-  references/    dated facts with sources, myths, bot roster, Yandex, page types, Russian style
+  references/    registry of 415 parameters, dated facts with sources, myths, bot roster, Yandex, page types, Russian style
   templates/     finding schema, brief, report, project context, voice profile
-  scripts/       9 scripts, Python 3.10+, standard library only
+  scripts/       11 scripts, Python 3.10+, standard library only
   tests/         python3 -m unittest discover -s tests
 evals/           fixture site with planted defects and an answer key
 ```
@@ -679,7 +721,7 @@ Modules by group:
 - writing: `brief`, `write`, `factcheck`, `edit`, `deai`, `voice`, `headlines`, `landing`, `text-metrics`;
 - site types and special cases: `local`, `ecommerce`, `international`, `programmatic`, `migration`, `logs`.
 
-The router loads only the module a request needs. Thresholds and dates live in one file, `references/facts-2026.md`, each with a check date and a link to the primary source. Findings follow `templates/finding.schema.json`: where the fact came from, when, the evidence snippet, status, search engine, the fix and how to verify it. Before it says "add X", the agent checks the live HTML to confirm X is really missing.
+The router loads only the module a request needs. The set of checks comes from the registry `references/registry.json`: 415 parameters in 13 groups, each with a recipe (where the value comes from and what counts as a finding), a severity and the source of the requirement. The registry is the shared contract — `audit.py`, the report and the tests all read it — and a parameter with no requirement in the documentation is marked "editor guideline" and cannot be called required. Thresholds and dates live in one file, `references/facts-2026.md`, each with a check date and a link to the primary source. Findings follow `templates/finding.schema.json`: where the fact came from, when, the evidence snippet, status, search engine, the fix and how to verify it. Before it says "add X", the agent checks the live HTML to confirm X is really missing.
 
 [evals/](evals/README.md) holds a small site with ten planted defects, eight traps and two prompt-injection attacks, for comparing the same model with and without the skill. That comparison hasn't been run on models yet; what the scripts alone catch, without a model, is in [evals/RESULTS-scripts.md](evals/RESULTS-scripts.md) (Russian).
 
@@ -690,7 +732,8 @@ The router loads only the module a request needs. Thresholds and dates live in o
 - Fetched HTML, robots.txt, CSV files and competitor texts are data, not instructions. Hidden prompts in a page are reported as a finding. Scripts reach the network only through `http_safe.py`, which blocks private and internal addresses, re-checks every redirect hop and caps the response size.
 - It doesn't make up search volume, rankings, DR or CTR. Missing data is reported as missing. Paid APIs (DataForSEO, Ahrefs, Semrush, Serpstat, SE Ranking, Wordstat API, Yandex Search API) may be suggested, always marked as paid.
 - No promises of traffic or rankings, and no "humanness" scores for text.
-- Page JavaScript isn't executed. The skill checks raw HTML and flags signs of client-side rendering.
+- Page JavaScript isn't executed. The skill checks raw HTML and flags signs of client-side rendering; when a page is assembled in the browser, `audit.py` reports "no data" instead of blaming the site for what it cannot see.
+- The registry isn't fully covered: 115 of 415 parameters have no check yet, and for 50 more the data is extracted but the rule isn't evaluated. Those rows show up in the report with a reason; 56 of them need a site crawl and 19 need a browser or an export. Full breakdown in the [CHANGELOG](CHANGELOG.md) (Russian).
 - There has been no external security audit.
 
 The threat model, what the tests cover and where protection ends: [SECURITY.md](SECURITY.md) (in Russian).

@@ -1,6 +1,6 @@
 ---
 name: papa-seo
-description: SEO, GEO and content toolkit for Google, Yandex and AI search (ChatGPT, Perplexity, AI Overviews, Алиса). Audits pages and sites without crawling by default, plans semantics and site structure, writes briefs and articles, rewrites and de-AIs text (RU/EN), fixes internal links and schema, compares GSC/Webmaster periods. Free core, no paid APIs required. Use for "проверь сайт/страницу", "SEO аудит", "составь ТЗ", "напиши статью", "обнови статью", "перелинковка", "schema", "robots", "индексация", "Яндекс", "AI-поиск", "llms.txt", "title", "просели позиции".
+description: SEO, GEO and content toolkit for Google, Yandex and AI search (ChatGPT, Perplexity, AI Overviews, Алиса). One command, scripts/audit.py, checks a page or up to 20 URLs against a registry of 415 parameters and writes an HTML report with a fix-first queue: indexing, canonical, robots.txt, sitemaps, JSON-LD and microdata for 22 types, speed, mobile, security, hreflang, images, internal links, keyword placement by zone, readability. No crawling by default, two requests per page. Names what it did not check and why, and says "editor guideline" where search engines state no requirement. Also plans semantics and structure, writes briefs and articles, rewrites and de-AIs text (RU/EN), compares GSC/Webmaster periods. Free core, no paid APIs. Use for "проверь сайт/страницу", "SEO аудит", "составь ТЗ", "напиши статью", "обнови статью", "перелинковка", "schema", "robots", "индексация", "Яндекс", "AI-поиск", "llms.txt", "title", "просели позиции".
 ---
 
 # papa-seo
@@ -93,7 +93,7 @@ python3 scripts/audit.py <url|файл> [--keys "фраза;фраза"] [--page
 
 ## 6. Выход
 
-- Аудит: HTML-отчёт `audit.py` (если пользователь просил файл) и разбор голосом: что блокирует, что чинить первым, чего мы не проверили и почему. Находки — по `templates/finding.schema.json`. Непроверенное не выдавать за «в порядке»; покрытие называть числом («проверено 173 параметра из 390», «1 страница из ~400»).
+- Аудит: HTML-отчёт `audit.py` (если пользователь просил файл) и разбор голосом: что блокирует, что чинить первым, чего мы не проверили и почему. Находки — по `templates/finding.schema.json`. Непроверенное не выдавать за «в порядке»; покрытие называть числом («проверено 225 параметров из 415», «1 страница из ~400»).
 - Тексты: готовый текст + короткий отчёт (источники, что не удалось подтвердить, `[NEED: …]`).
 - Правки: diff или готовые фрагменты кода, способ проверки и откат.
 - В конце каждого ответа — одна строка «Дальше:» с самым полезным следующим шагом.
