@@ -1,6 +1,6 @@
 {
- "$id": "urn:papa-seo:registry:0.2.0",
- "version": "0.2.0",
+ "$id": "urn:papa-seo:registry:0.2.1",
+ "version": "0.2.1",
  "generated": "2026-10-30",
  "about": "Реестр параметров проверки сайта для papa-seo. Контракт между модулями и скриптами: audit.py собирает проверки по этому файлу. Поля: id (устойчивый, group.short_name), group, title, what, how (детерминированный рецепт), inputs, scope, deterministic, signal, severity, engine, source, source_kind, status, covered_by.",
  "rules": [
@@ -55,67 +55,124 @@
   ]
  },
  "counts": {
-  "total": 390,
-  "deterministic": 364,
+  "total": 415,
+  "deterministic": 389,
   "non_deterministic": 26,
   "by_status": {
-   "есть": 112,
-   "частично": 93,
-   "нет": 185
+   "есть": 250,
+   "частично": 50,
+   "нет": 115
   },
   "by_group": {
-   "access": 71,
-   "markup": 62,
-   "meta": 35,
-   "content": 43,
-   "images": 24,
+   "access": 72,
+   "markup": 66,
+   "doc": 15,
+   "meta": 38,
+   "content": 41,
+   "images": 25,
    "links": 26,
    "speed": 22,
-   "mobile": 18,
-   "security": 20,
-   "intl": 20,
+   "mobile": 22,
+   "security": 24,
+   "intl": 21,
    "ai": 22,
-   "commerce": 27
+   "commerce": 21
   },
   "by_severity": {
    "critical": 12,
-   "high": 53,
+   "high": 54,
    "medium": 126,
-   "low": 122,
-   "info": 77
+   "low": 129,
+   "info": 94
   },
-  "editor_reference_only": 73
+  "editor_reference_only": 77
+ },
+ "changes_0_2_1": {
+  "note": "Переезды и разбиение от 30.10.2026 (запрос B, коммит 964b343). Старые id больше не существуют: переводить по этой карте, слой алиасов в коде не нужен.",
+  "renamed": {
+   "commerce.duplicate_ids": "doc.duplicate_ids",
+   "commerce.anchor_targets": "doc.anchor_targets",
+   "commerce.form_labels": "doc.form_labels",
+   "commerce.form_autocomplete": "doc.form_autocomplete",
+   "commerce.form_required_marked": "doc.form_required_marked",
+   "commerce.form_method_get": "doc.form_method_get",
+   "content.lists_present": "doc.lists_present",
+   "markup.landmarks": "doc.landmarks",
+   "content.list_children": "doc.list_children",
+   "content.tables_layout": "doc.table_layout",
+   "commerce.form_no_submit": "doc.form_no_submit",
+   "commerce.search_form": "doc.search_form"
+  },
+  "split": {
+   "content.tables_markup": [
+    "doc.table_th",
+    "doc.table_caption",
+    "doc.table_scope",
+    "doc.table_layout"
+   ]
+  },
+  "added": [
+   "access.pagination_param",
+   "doc.form_no_submit",
+   "doc.landmarks",
+   "doc.list_children",
+   "doc.search_form",
+   "doc.table_layout",
+   "images.picture",
+   "intl.lang_inner",
+   "markup.duplicate_types",
+   "markup.og_duplicate",
+   "markup.og_image_scheme",
+   "markup.og_in_head",
+   "meta.apple_touch_icon",
+   "meta.manifest",
+   "meta.theme_color",
+   "mobile.amphtml",
+   "mobile.viewport_duplicate",
+   "mobile.viewport_unknown_keys",
+   "mobile.x_ua_compatible",
+   "security.csp_unsafe_inline",
+   "security.csp_upgrade_insecure",
+   "security.form_password_get",
+   "security.http_links"
+  ]
  },
  "groups": [
   {
    "id": "access",
    "title": "Доступность и индексация",
    "about": "Пустит ли поиск, отдаст ли сервер, попадёт ли в индекс.",
-   "count": 71
+   "count": 72
   },
   {
    "id": "markup",
    "title": "Разметка",
-   "about": "JSON-LD/микроданные, Open Graph, Twitter Card, обязательные поля типов.",
-   "count": 62
+   "about": "Структурированные данные и превью: JSON-LD/микроданные, Open Graph, Twitter Card, обязательные поля типов. Семантика самого HTML — в группе doc.",
+   "count": 66
+  },
+  {
+   "id": "doc",
+   "title": "Разметка документа",
+   "about": "Семантика HTML и доступность: ориентиры, таблицы, списки, якоря, id, формы.",
+   "count": 15
   },
   {
    "id": "meta",
    "title": "Заголовки и мета",
    "about": "title, description, H1–H6, порядок и уникальность.",
-   "count": 35
+   "count": 38
   },
   {
    "id": "content",
    "title": "Контент и текст",
    "about": "объём, ключи по зонам, повторы, читаемость, тошнота, вода, канцелярит.",
-   "count": 43
+   "count": 41
   },
   {
    "id": "images",
    "title": "Изображения",
    "about": "alt, размеры, формат, lazy, srcset, вес.",
-   "count": 24
+   "count": 25
   },
   {
    "id": "links",
@@ -133,19 +190,19 @@
    "id": "mobile",
    "title": "Мобильность",
    "about": "viewport, паритет мобильной и десктопной версии.",
-   "count": 18
+   "count": 22
   },
   {
    "id": "security",
    "title": "Безопасность",
    "about": "HTTPS, смешанный контент, заголовки безопасности.",
-   "count": 20
+   "count": 24
   },
   {
    "id": "intl",
    "title": "Интернационализация",
    "about": "hreflang, lang, dir, переводы.",
-   "count": 20
+   "count": 21
   },
   {
    "id": "ai",
@@ -157,7 +214,7 @@
    "id": "commerce",
    "title": "Коммерческие сигналы",
    "about": "цена, контакты, NAP, условия, доверие (рунет-слой и локальный поиск).",
-   "count": 27
+   "count": 21
   }
  ],
  "params": [
@@ -286,6 +343,7 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.meta_refresh"
    ]
   },
@@ -1485,9 +1543,10 @@
    "engine": "both",
    "source": "Google «Pagination and incremental page loading» (developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading); facts-2026 §3",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.canonical"
+    "page_facts.canonical",
+    "page_facts.checks"
    ]
   },
   {
@@ -1506,8 +1565,9 @@
    "engine": "both",
    "source": "Google «Pagination and incremental page loading» (developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading); facts-2026 §3",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.links"
    ]
   },
@@ -1527,8 +1587,10 @@
    "engine": "both",
    "source": "Google «Pagination and incremental page loading» (developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading); facts-2026 §3",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "access.doc_size_limit",
@@ -1671,7 +1733,8 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
-    "page_facts.json_ld.parse_ok"
+    "page_facts.json_ld.parse_ok",
+    "schema_check.checks"
    ]
   },
   {
@@ -1690,9 +1753,10 @@
    "engine": "both",
    "source": "Google «Structured data general guidelines» (developers.google.com/search/docs/appearance/structured-data/sd-policies); facts-2026 §6",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.json_ld.data"
+    "page_facts.json_ld.data",
+    "schema_check.checks"
    ]
   },
   {
@@ -1713,7 +1777,8 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
-    "page_facts.json_ld.types"
+    "page_facts.json_ld.types",
+    "schema_check.checks"
    ]
   },
   {
@@ -1735,9 +1800,10 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
-    "page_facts.schema_types",
     "page_facts.microdata_types",
-    "page_facts.rdfa_types"
+    "page_facts.rdfa_types",
+    "page_facts.schema_types",
+    "schema_check.checks"
    ]
   },
   {
@@ -1759,7 +1825,8 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
-    "page_facts.schema_types"
+    "page_facts.schema_types",
+    "schema_check.checks"
    ]
   },
   {
@@ -1774,13 +1841,15 @@
    ],
    "scope": "page",
    "deterministic": true,
-   "signal": "fact",
+   "signal": "estimate",
    "severity": "high",
    "engine": "both",
    "source": "Google «Structured data general guidelines» (developers.google.com/search/docs/appearance/structured-data/sd-policies); facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.hidden_markup",
@@ -1798,9 +1867,10 @@
    "engine": "both",
    "source": "Google «Structured data general guidelines» (developers.google.com/search/docs/appearance/structured-data/sd-policies); facts-2026 §6",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.headings.hidden"
+    "page_facts.headings.hidden",
+    "schema_check.checks"
    ]
   },
   {
@@ -1819,8 +1889,10 @@
    "engine": "both",
    "source": "Google «Structured data general guidelines» (developers.google.com/search/docs/appearance/structured-data/sd-policies); facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.relative_urls",
@@ -1838,8 +1910,10 @@
    "engine": "both",
    "source": "Google «Structured data general guidelines» (developers.google.com/search/docs/appearance/structured-data/sd-policies); facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.date_format",
@@ -1857,9 +1931,10 @@
    "engine": "both",
    "source": "Google structured data: Article (developers.google.com/search/docs/appearance/structured-data/article); словарь — schema.org/Article; facts-2026 §6",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.json_ld.dates"
+    "page_facts.json_ld.dates",
+    "schema_check.checks"
    ]
   },
   {
@@ -1881,7 +1956,8 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
-    "page_facts.dates"
+    "page_facts.dates",
+    "schema_check.checks"
    ]
   },
   {
@@ -1900,8 +1976,10 @@
    "engine": "google",
    "source": "Google structured data: Offer / merchant listing (developers.google.com/search/docs/appearance/structured-data/merchant-listing); словарь — schema.org/Offer; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.id_dangling",
@@ -1919,8 +1997,10 @@
    "engine": "both",
    "source": "Google «Structured data general guidelines» (developers.google.com/search/docs/appearance/structured-data/sd-policies); facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.id_duplicate",
@@ -1938,8 +2018,10 @@
    "engine": "both",
    "source": "Google «Structured data general guidelines» (developers.google.com/search/docs/appearance/structured-data/sd-policies); facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.url_vs_canonical",
@@ -1958,8 +2040,10 @@
    "engine": "both",
    "source": "Google «Structured data general guidelines» (developers.google.com/search/docs/appearance/structured-data/sd-policies); facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.formats_disagree",
@@ -1997,9 +2081,10 @@
    "engine": "google",
    "source": "Google «Search gallery» (developers.google.com/search/docs/appearance/structured-data/search-gallery); facts-2026 §6",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.schema_types"
+    "page_facts.schema_types",
+    "schema_check.checks"
    ]
   },
   {
@@ -2038,8 +2123,10 @@
    "engine": "yandex",
    "source": "Яндекс: поддерживаемые схемы и Open Graph (yandex.ru/support/webmaster/ — schema-org, supported-schemas, open-graph); references/yandex.md §4",
    "source_kind": "yandex",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.yandex_catalog_strict",
@@ -2077,8 +2164,10 @@
    "engine": "both",
    "source": "schema.org (schema.org/docs/gs.html) — словарь обязательных свойств не задаёт; обязательность определяет потребитель разметки",
    "source_kind": "schema_org",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_article",
@@ -2096,8 +2185,10 @@
    "engine": "both",
    "source": "Google structured data: Article (developers.google.com/search/docs/appearance/structured-data/article); словарь — schema.org/Article; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_breadcrumb",
@@ -2115,8 +2206,10 @@
    "engine": "both",
    "source": "Google structured data: BreadcrumbList (developers.google.com/search/docs/appearance/structured-data/breadcrumb); словарь — schema.org/BreadcrumbList; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_product",
@@ -2134,8 +2227,10 @@
    "engine": "google",
    "source": "Google structured data: Product (developers.google.com/search/docs/appearance/structured-data/product); словарь — schema.org/Product; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_offer",
@@ -2153,8 +2248,10 @@
    "engine": "google",
    "source": "Google structured data: Offer / merchant listing (developers.google.com/search/docs/appearance/structured-data/merchant-listing); словарь — schema.org/Offer; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_organization",
@@ -2172,8 +2269,10 @@
    "engine": "both",
    "source": "Google structured data: Organization (developers.google.com/search/docs/appearance/structured-data/organization); словарь — schema.org/Organization; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_person",
@@ -2191,8 +2290,10 @@
    "engine": "both",
    "source": "Google structured data: ProfilePage / Person (developers.google.com/search/docs/appearance/structured-data/profile-page); словарь — schema.org/ProfilePage; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_event",
@@ -2210,8 +2311,10 @@
    "engine": "both",
    "source": "Google structured data: Event (developers.google.com/search/docs/appearance/structured-data/event); словарь — schema.org/Event; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_jobposting",
@@ -2229,8 +2332,10 @@
    "engine": "both",
    "source": "Google structured data: JobPosting (developers.google.com/search/docs/appearance/structured-data/job-posting); словарь — schema.org/JobPosting; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_localbusiness",
@@ -2248,8 +2353,10 @@
    "engine": "google",
    "source": "Google structured data: LocalBusiness (developers.google.com/search/docs/appearance/structured-data/local-business); словарь — schema.org/LocalBusiness; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_recipe",
@@ -2267,8 +2374,10 @@
    "engine": "both",
    "source": "Google structured data: Recipe (developers.google.com/search/docs/appearance/structured-data/recipe); словарь — schema.org/Recipe; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_videoobject",
@@ -2286,8 +2395,10 @@
    "engine": "both",
    "source": "Google structured data: VideoObject (developers.google.com/search/docs/appearance/structured-data/video); словарь — schema.org/VideoObject; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_website",
@@ -2305,8 +2416,10 @@
    "engine": "both",
    "source": "Google structured data: WebSite / SearchAction (developers.google.com/search/docs/appearance/structured-data/sitelinks-searchbox); словарь — schema.org/WebSite; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_itemlist",
@@ -2324,8 +2437,10 @@
    "engine": "google",
    "source": "Google structured data: ItemList / Carousel (developers.google.com/search/docs/appearance/structured-data/carousel); словарь — schema.org/ItemList; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_qapage",
@@ -2343,8 +2458,10 @@
    "engine": "both",
    "source": "Google structured data: QAPage (developers.google.com/search/docs/appearance/structured-data/qapage); словарь — schema.org/QAPage; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_review",
@@ -2362,8 +2479,10 @@
    "engine": "google",
    "source": "Google structured data: Review / AggregateRating (developers.google.com/search/docs/appearance/structured-data/review-snippet); словарь — schema.org/Review; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_softwareapp",
@@ -2381,8 +2500,10 @@
    "engine": "both",
    "source": "Google structured data: SoftwareApplication (developers.google.com/search/docs/appearance/structured-data/software-app); словарь — schema.org/SoftwareApplication; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_faqpage",
@@ -2400,8 +2521,10 @@
    "engine": "both",
    "source": "Google structured data: FAQPage (developers.google.com/search/docs/appearance/structured-data/faqpage); словарь — schema.org/FAQPage; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_discussion",
@@ -2419,8 +2542,10 @@
    "engine": "google",
    "source": "Google structured data: DiscussionForumPosting (developers.google.com/search/docs/appearance/structured-data/discussion-forum); словарь — schema.org/DiscussionForumPosting; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_speakable",
@@ -2438,8 +2563,10 @@
    "engine": "google",
    "source": "Google structured data: speakable (developers.google.com/search/docs/appearance/structured-data/speakable); словарь — schema.org/speakable; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_paywall",
@@ -2457,8 +2584,10 @@
    "engine": "google",
    "source": "Google structured data: paywalled content (developers.google.com/search/docs/appearance/structured-data/paywalled-content); словарь — schema.org/paywalled; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_imagelicense",
@@ -2476,8 +2605,10 @@
    "engine": "google",
    "source": "Google structured data: ImageObject / лицензия (developers.google.com/search/docs/appearance/structured-data/image-license-metadata); словарь — schema.org/ImageObject; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.req_dataset",
@@ -2495,8 +2626,10 @@
    "engine": "google",
    "source": "Google structured data: Dataset (developers.google.com/search/docs/appearance/structured-data/dataset); словарь — schema.org/Dataset; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.og_required",
@@ -2514,9 +2647,10 @@
    "engine": "both",
    "source": "Open Graph protocol (ogp.me) — четыре обязательных свойства: og:title, og:type, og:image, og:url",
    "source_kind": "ogp",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.open_graph"
+    "page_facts.open_graph",
+    "schema_check.checks"
    ]
   },
   {
@@ -2535,9 +2669,10 @@
    "engine": "both",
    "source": "Open Graph protocol (ogp.me) — четыре обязательных свойства: og:title, og:type, og:image, og:url",
    "source_kind": "ogp",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.open_graph"
+    "page_facts.open_graph",
+    "schema_check.checks"
    ]
   },
   {
@@ -2556,9 +2691,10 @@
    "engine": "both",
    "source": "Open Graph protocol (ogp.me) — четыре обязательных свойства: og:title, og:type, og:image, og:url",
    "source_kind": "ogp",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.open_graph"
+    "page_facts.open_graph",
+    "schema_check.checks"
    ]
   },
   {
@@ -2577,9 +2713,10 @@
    "engine": "both",
    "source": "Open Graph protocol (ogp.me) — четыре обязательных свойства: og:title, og:type, og:image, og:url",
    "source_kind": "ogp",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.open_graph"
+    "page_facts.open_graph",
+    "schema_check.checks"
    ]
   },
   {
@@ -2617,8 +2754,10 @@
    "engine": "both",
    "source": "Open Graph protocol (ogp.me) — четыре обязательных свойства: og:title, og:type, og:image, og:url",
    "source_kind": "ogp",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.og_locale",
@@ -2636,9 +2775,10 @@
    "engine": "both",
    "source": "Open Graph protocol (ogp.me) — четыре обязательных свойства: og:title, og:type, og:image, og:url",
    "source_kind": "ogp",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.open_graph"
+    "page_facts.open_graph",
+    "schema_check.checks"
    ]
   },
   {
@@ -2657,9 +2797,10 @@
    "engine": "both",
    "source": "Open Graph protocol (ogp.me) — четыре обязательных свойства: og:title, og:type, og:image, og:url",
    "source_kind": "ogp",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "page_facts.open_graph"
+    "page_facts.open_graph",
+    "schema_check.checks"
    ]
   },
   {
@@ -2678,8 +2819,10 @@
    "engine": "both",
    "source": "Open Graph protocol (ogp.me) — четыре обязательных свойства: og:title, og:type, og:image, og:url",
    "source_kind": "ogp",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.og_yandex",
@@ -2718,8 +2861,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.twitter_fallback",
@@ -2737,8 +2882,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.twitter_image_alt",
@@ -2756,8 +2903,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.sd_vs_mobile",
@@ -2836,8 +2985,10 @@
    "engine": "google",
    "source": "Google structured data: Review / AggregateRating (developers.google.com/search/docs/appearance/structured-data/review-snippet); словарь — schema.org/Review; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "markup.org_consistency",
@@ -2877,7 +3028,8 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
-    "page_facts.json_ld.bytes"
+    "page_facts.json_ld.bytes",
+    "schema_check.checks"
    ]
   },
   {
@@ -3480,8 +3632,10 @@
    "engine": "both",
    "source": "Google «Favicon in Search» (developers.google.com/search/docs/appearance/favicon-in-search)",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "meta.favicon_square",
@@ -3499,8 +3653,10 @@
    "engine": "both",
    "source": "Google «Favicon in Search» (developers.google.com/search/docs/appearance/favicon-in-search)",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "частично",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "meta.favicon_crawlable",
@@ -4349,8 +4505,8 @@
    ]
   },
   {
-   "id": "content.lists_present",
-   "group": "content",
+   "id": "doc.lists_present",
+   "group": "doc",
    "title": "Списки в разметке",
    "what": "перечисления оформлены ul/ol",
    "how": "число ul/ol и li; длинные перечисления в одном абзаце — находка редактора",
@@ -4364,15 +4520,18 @@
    "engine": "both",
    "source": "HTML Living Standard (html.spec.whatwg.org)",
    "source_kind": "whatwg",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "content.lists_present"
   },
   {
-   "id": "content.tables_markup",
-   "group": "content",
-   "title": "Таблицы размечены",
-   "what": "данные в table с th и caption",
-   "how": "наличие table; у каждой — th (scope) и желательно caption; верстка таблицами для раскладки — отдельная находка",
+   "id": "doc.table_th",
+   "group": "doc",
+   "title": "Таблица данных без th",
+   "what": "заголовки столбцов или строк не размечены",
+   "how": "в table есть tr с данными, но нет ни одного th",
    "inputs": [
     "html"
    ],
@@ -4380,6 +4539,44 @@
    "deterministic": true,
    "signal": "fact",
    "severity": "low",
+   "engine": "both",
+   "source": "W3C WCAG 2.2 (w3.org/TR/WCAG22/)",
+   "source_kind": "w3c",
+   "status": "нет",
+   "covered_by": []
+  },
+  {
+   "id": "doc.table_scope",
+   "group": "doc",
+   "title": "th без scope",
+   "what": "непонятно, к строке или столбцу относится заголовок",
+   "how": "у th нет scope (или headers) в таблице, где есть и строчные, и столбцовые заголовки",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "low",
+   "engine": "both",
+   "source": "W3C WCAG 2.2 (w3.org/TR/WCAG22/)",
+   "source_kind": "w3c",
+   "status": "нет",
+   "covered_by": []
+  },
+  {
+   "id": "doc.table_caption",
+   "group": "doc",
+   "title": "Таблица без caption",
+   "what": "у таблицы нет названия",
+   "how": "в table нет элемента caption и нет aria-label/aria-labelledby",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
    "engine": "both",
    "source": "W3C WCAG 2.2 (w3.org/TR/WCAG22/)",
    "source_kind": "w3c",
@@ -4487,6 +4684,7 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images_summary.missing"
    ]
   },
@@ -4508,6 +4706,7 @@
    "source_kind": "w3c",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images_summary.empty"
    ]
   },
@@ -4527,8 +4726,10 @@
    "engine": "both",
    "source": "Google image SEO (developers.google.com/search/docs/appearance/google-images)",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "images.alt_stuffed",
@@ -4546,8 +4747,10 @@
    "engine": "both",
    "source": "Google image SEO (developers.google.com/search/docs/appearance/google-images)",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "images.alt_length",
@@ -4565,8 +4768,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "images.alt_duplicate",
@@ -4584,8 +4789,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "images.dimensions",
@@ -4605,6 +4812,7 @@
    "source_kind": "webdev",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images_summary.no_dimensions"
    ]
   },
@@ -4624,8 +4832,9 @@
    "engine": "google",
    "source": "web.dev «Optimize LCP» (web.dev/articles/optimize-lcp); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images"
    ]
   },
@@ -4647,6 +4856,7 @@
    "source_kind": "webdev",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images"
    ]
   },
@@ -4666,8 +4876,9 @@
    "engine": "both",
    "source": "Google image SEO (developers.google.com/search/docs/appearance/google-images)",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images"
    ]
   },
@@ -4687,8 +4898,10 @@
    "engine": "both",
    "source": "Google image SEO (developers.google.com/search/docs/appearance/google-images)",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "images.format",
@@ -4708,6 +4921,7 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images"
    ]
   },
@@ -4727,8 +4941,9 @@
    "engine": "google",
    "source": "Google image SEO (developers.google.com/search/docs/appearance/google-images)",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images"
    ]
   },
@@ -4806,8 +5021,10 @@
    "engine": "google",
    "source": "Google image SEO (developers.google.com/search/docs/appearance/google-images)",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "images.data_uri",
@@ -4825,8 +5042,10 @@
    "engine": "both",
    "source": "Google image SEO (developers.google.com/search/docs/appearance/google-images)",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "images.src_missing",
@@ -4844,8 +5063,9 @@
    "engine": "both",
    "source": "HTML Living Standard (html.spec.whatwg.org)",
    "source_kind": "whatwg",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images"
    ]
   },
@@ -4867,6 +5087,7 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images"
    ]
   },
@@ -4928,8 +5149,9 @@
    "engine": "google",
    "source": "Google robots meta tag / X-Robots-Tag (developers.google.com/search/docs/crawling-indexing/robots-meta-tag); facts-2026 §2",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.robots"
    ]
   },
@@ -4950,8 +5172,9 @@
    "engine": "both",
    "source": "Google robots meta tag / X-Robots-Tag (developers.google.com/search/docs/crawling-indexing/robots-meta-tag); facts-2026 §2",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.robots"
    ]
   },
@@ -5521,7 +5744,8 @@
    "source_kind": "webdev",
    "status": "есть",
    "covered_by": [
-    "http_safe.Response.elapsed_ms"
+    "http_safe.Response.elapsed_ms",
+    "page_facts.checks"
    ]
   },
   {
@@ -5542,6 +5766,7 @@
    "source_kind": "editor",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.fetch.bytes"
    ]
   },
@@ -5561,8 +5786,9 @@
    "engine": "both",
    "source": "web.dev «TTFB» (web.dev/articles/ttfb); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -5582,8 +5808,9 @@
    "engine": "both",
    "source": "web.dev «TTFB» (web.dev/articles/ttfb); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -5622,8 +5849,9 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -5645,6 +5873,7 @@
    "source_kind": "editor",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.scripts"
    ]
   },
@@ -5664,8 +5893,10 @@
    "engine": "both",
    "source": "web.dev «Optimize LCP» (web.dev/articles/optimize-lcp); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.blocking_css",
@@ -5683,8 +5914,10 @@
    "engine": "both",
    "source": "web.dev «Optimize LCP» (web.dev/articles/optimize-lcp); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.resource_count_by_type",
@@ -5702,8 +5935,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.third_party_hosts",
@@ -5721,8 +5956,10 @@
    "engine": "both",
    "source": "web.dev «Web Vitals» (web.dev/articles/vitals); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.inline_css_bytes",
@@ -5740,8 +5977,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.inline_js_bytes",
@@ -5759,8 +5998,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.preload_hints",
@@ -5778,8 +6019,10 @@
    "engine": "both",
    "source": "web.dev «Optimize LCP» (web.dev/articles/optimize-lcp); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.font_display",
@@ -5797,8 +6040,10 @@
    "engine": "both",
    "source": "web.dev «Optimize LCP» (web.dev/articles/optimize-lcp); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.iframe_dimensions",
@@ -5816,8 +6061,10 @@
    "engine": "google",
    "source": "web.dev «Web Vitals» (web.dev/articles/vitals); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.iframe_lazy",
@@ -5835,8 +6082,10 @@
    "engine": "both",
    "source": "web.dev «Browser-level lazy loading» (web.dev/articles/browser-level-image-lazy-loading)",
    "source_kind": "webdev",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.dom_size",
@@ -5854,8 +6103,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "speed.redirect_before_page",
@@ -5875,7 +6126,8 @@
    "source_kind": "webdev",
    "status": "есть",
    "covered_by": [
-    "http_safe.Response.chain"
+    "http_safe.Response.chain",
+    "page_facts.checks"
    ]
   },
   {
@@ -5894,8 +6146,9 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -5934,8 +6187,9 @@
    "engine": "google",
    "source": "web.dev «Optimize LCP» (web.dev/articles/optimize-lcp); facts-2026 §7",
    "source_kind": "webdev",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.images"
    ]
   },
@@ -5957,6 +6211,7 @@
    "source_kind": "webdev",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.viewport"
    ]
   },
@@ -5976,8 +6231,9 @@
    "engine": "both",
    "source": "web.dev «Responsive web design basics» (web.dev/articles/responsive-web-design-basics)",
    "source_kind": "webdev",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.viewport"
    ]
   },
@@ -5997,8 +6253,9 @@
    "engine": "both",
    "source": "web.dev «Responsive web design basics» (web.dev/articles/responsive-web-design-basics)",
    "source_kind": "webdev",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.viewport"
    ]
   },
@@ -6018,8 +6275,9 @@
    "engine": "both",
    "source": "web.dev «Responsive web design basics» (web.dev/articles/responsive-web-design-basics)",
    "source_kind": "webdev",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.viewport"
    ]
   },
@@ -6039,8 +6297,9 @@
    "engine": "both",
    "source": "web.dev «Responsive web design basics» (web.dev/articles/responsive-web-design-basics)",
    "source_kind": "webdev",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.viewport"
    ]
   },
@@ -6193,8 +6452,10 @@
    "engine": "google",
    "source": "Google «Mobile-first indexing best practices» (developers.google.com/search/docs/crawling-indexing/mobile/mobile-sites-mobile-first-indexing)",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "mobile.interstitial",
@@ -6311,7 +6572,8 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
-    "http_safe.Response.final_url"
+    "http_safe.Response.final_url",
+    "page_facts.checks"
    ]
   },
   {
@@ -6332,7 +6594,8 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
-    "http_safe.SafeHttpError"
+    "http_safe.SafeHttpError",
+    "page_facts.checks"
    ]
   },
   {
@@ -6351,8 +6614,9 @@
    "engine": "both",
    "source": "RFC 6797 «HTTP Strict Transport Security» (rfc-editor.org/rfc/rfc6797)",
    "source_kind": "rfc",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6372,8 +6636,9 @@
    "engine": "both",
    "source": "W3C «Content Security Policy Level 3» (w3.org/TR/CSP3/)",
    "source_kind": "w3c",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6393,8 +6658,9 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6414,8 +6680,9 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6435,8 +6702,9 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6456,8 +6724,9 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6477,8 +6746,9 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6498,8 +6768,9 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6519,8 +6790,10 @@
    "engine": "both",
    "source": "W3C «Mixed Content» (w3.org/TR/mixed-content/)",
    "source_kind": "w3c",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "security.mixed_content_passive",
@@ -6538,8 +6811,10 @@
    "engine": "both",
    "source": "W3C «Mixed Content» (w3.org/TR/mixed-content/)",
    "source_kind": "w3c",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "security.form_action_http",
@@ -6557,8 +6832,10 @@
    "engine": "both",
    "source": "W3C «Mixed Content» (w3.org/TR/mixed-content/)",
    "source_kind": "w3c",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "security.server_banner",
@@ -6576,8 +6853,9 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6597,9 +6875,10 @@
    "engine": "both",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
-    "http_safe.Response.headers"
+    "http_safe.Response.headers",
+    "page_facts.checks"
    ]
   },
   {
@@ -6620,6 +6899,7 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.hidden_instructions"
    ]
   },
@@ -6723,6 +7003,7 @@
    "source_kind": "whatwg",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.lang"
    ]
   },
@@ -6742,8 +7023,9 @@
    "engine": "both",
    "source": "RFC 9110 §8.5 Content-Language; BCP 47 (rfc-editor.org/rfc/rfc5646)",
    "source_kind": "rfc",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.lang"
    ]
   },
@@ -6764,8 +7046,9 @@
    "engine": "both",
    "source": "Google «Localized versions» (developers.google.com/search/docs/specialty/international/localized-versions); facts-2026 §8",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.lang"
    ]
   },
@@ -6785,8 +7068,10 @@
    "engine": "both",
    "source": "HTML Living Standard (html.spec.whatwg.org)",
    "source_kind": "whatwg",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "intl.content_language",
@@ -6804,8 +7089,9 @@
    "engine": "both",
    "source": "RFC 9110 §8.5 Content-Language; BCP 47 (rfc-editor.org/rfc/rfc5646)",
    "source_kind": "rfc",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.headers"
    ]
   },
@@ -6829,6 +7115,7 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.hreflang"
    ]
   },
@@ -6848,8 +7135,9 @@
    "engine": "both",
    "source": "Google «Localized versions» (developers.google.com/search/docs/specialty/international/localized-versions); facts-2026 §8",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.hreflang"
    ]
   },
@@ -6871,6 +7159,7 @@
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.hreflang"
    ]
   },
@@ -6890,8 +7179,9 @@
    "engine": "both",
    "source": "Google «Localized versions» (developers.google.com/search/docs/specialty/international/localized-versions); facts-2026 §8",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.hreflang"
    ]
   },
@@ -6911,8 +7201,9 @@
    "engine": "both",
    "source": "Google «Localized versions» (developers.google.com/search/docs/specialty/international/localized-versions); facts-2026 §8",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.hreflang"
    ]
   },
@@ -6932,8 +7223,9 @@
    "engine": "both",
    "source": "Google «Localized versions» (developers.google.com/search/docs/specialty/international/localized-versions); facts-2026 §8",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "page_facts.checks",
     "page_facts.hreflang"
    ]
   },
@@ -7052,8 +7344,10 @@
    "engine": "google",
    "source": "Google «Localized versions» (developers.google.com/search/docs/specialty/international/localized-versions); facts-2026 §8",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   },
   {
    "id": "intl.translation_coverage",
@@ -7645,8 +7939,10 @@
    "engine": "google",
    "source": "Google structured data: Offer / merchant listing (developers.google.com/search/docs/appearance/structured-data/merchant-listing); словарь — schema.org/Offer; facts-2026 §6",
    "source_kind": "google",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
   },
   {
    "id": "commerce.shipping_returns",
@@ -7947,8 +8243,8 @@
    ]
   },
   {
-   "id": "commerce.form_labels",
-   "group": "commerce",
+   "id": "doc.form_labels",
+   "group": "doc",
    "title": "Поля формы подписаны",
    "what": "у input есть label или aria-label",
    "how": "каждый input/select/textarea: связанный label (for/id или вложенность) либо aria-label/aria-labelledby",
@@ -7962,12 +8258,15 @@
    "engine": "both",
    "source": "W3C WCAG 2.2 (w3.org/TR/WCAG22/)",
    "source_kind": "w3c",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "commerce.form_labels"
   },
   {
-   "id": "commerce.form_autocomplete",
-   "group": "commerce",
+   "id": "doc.form_autocomplete",
+   "group": "doc",
    "title": "autocomplete у полей",
    "what": "браузер может подставить данные",
    "how": "у полей имени, почты, телефона, адреса задан autocomplete с подходящим токеном",
@@ -7981,12 +8280,15 @@
    "engine": "both",
    "source": "HTML Living Standard (html.spec.whatwg.org)",
    "source_kind": "whatwg",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "commerce.form_autocomplete"
   },
   {
-   "id": "commerce.form_required_marked",
-   "group": "commerce",
+   "id": "doc.form_required_marked",
+   "group": "doc",
    "title": "Обязательные поля помечены",
    "what": "атрибут required и видимая пометка",
    "how": "наличие required у полей, помеченных звёздочкой в подписи",
@@ -8000,15 +8302,18 @@
    "engine": "both",
    "source": "W3C WCAG 2.2 (w3.org/TR/WCAG22/)",
    "source_kind": "w3c",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "commerce.form_required_marked"
   },
   {
-   "id": "commerce.form_method_get",
-   "group": "commerce",
+   "id": "doc.form_method_get",
+   "group": "doc",
    "title": "Форма отправки методом GET",
    "what": "данные уходят в query-строку",
-   "how": "form без method или с method=get при полях персональных данных",
+   "how": "form без method или с method=get при полях персональных данных (имя, почта, телефон, адрес); поле пароля сюда не входит — это security.form_password_get",
    "inputs": [
     "html"
    ],
@@ -8019,12 +8324,15 @@
    "engine": "both",
    "source": "HTML Living Standard (html.spec.whatwg.org)",
    "source_kind": "whatwg",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "commerce.form_method_get"
   },
   {
-   "id": "commerce.duplicate_ids",
-   "group": "commerce",
+   "id": "doc.duplicate_ids",
+   "group": "doc",
    "title": "Дубли id в документе",
    "what": "ломают связь label с полем и якоря",
    "how": "повторяющиеся значения атрибута id; спецификация требует уникальности в дереве",
@@ -8038,12 +8346,15 @@
    "engine": "both",
    "source": "HTML Living Standard (html.spec.whatwg.org)",
    "source_kind": "whatwg",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "commerce.duplicate_ids"
   },
   {
-   "id": "commerce.anchor_targets",
-   "group": "commerce",
+   "id": "doc.anchor_targets",
+   "group": "doc",
    "title": "Якоря ведут в существующие места",
    "what": "ссылка на #id, которого нет",
    "how": "цели внутренних ссылок вида #id против множества id документа и name якорей",
@@ -8057,8 +8368,11 @@
    "engine": "both",
    "source": "HTML Living Standard (html.spec.whatwg.org)",
    "source_kind": "whatwg",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "commerce.anchor_targets"
   },
   {
    "id": "commerce.trust_signals",
@@ -8098,6 +8412,497 @@
    "source_kind": "yandex",
    "status": "нет",
    "covered_by": []
+  },
+  {
+   "id": "markup.og_duplicate",
+   "group": "markup",
+   "title": "Дубли og-свойств",
+   "what": "одно свойство объявлено дважды",
+   "how": "одно и то же og:-имя встречается в нескольких meta",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "low",
+   "engine": "both",
+   "source": "Open Graph protocol (ogp.me) — четыре обязательных свойства: og:title, og:type, og:image, og:url",
+   "source_kind": "ogp",
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks",
+    "page_facts.social"
+   ]
+  },
+  {
+   "id": "markup.og_in_head",
+   "group": "markup",
+   "title": "og и twitter внутри head",
+   "what": "теги превью вынесены в body",
+   "how": "все meta с property/name, начинающимися на og: или twitter:, лежат в head",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "low",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "markup.og_image_scheme",
+   "group": "markup",
+   "title": "Схема og:image",
+   "what": "картинка превью по http на https-странице",
+   "how": "og:image начинается с http:// при схеме страницы https",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "low",
+   "engine": "both",
+   "source": "W3C «Mixed Content» (w3.org/TR/mixed-content/)",
+   "source_kind": "w3c",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "markup.duplicate_types",
+   "group": "markup",
+   "title": "Главный тип в нескольких сущностях",
+   "what": "два Organization или два WebSite",
+   "how": "типы Organization / WebSite / WebPage / BreadcrumbList встречаются в графе страницы больше одного раза",
+   "inputs": [
+    "jsonld"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "ориентир редактора",
+   "source_kind": "editor",
+   "status": "есть",
+   "covered_by": [
+    "schema_check.checks"
+   ]
+  },
+  {
+   "id": "doc.landmarks",
+   "group": "doc",
+   "title": "Ориентиры разметки",
+   "what": "есть ли main, nav, header, footer",
+   "how": "наличие элементов main/nav/header/footer; main больше одного — отдельная строка в значении",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "markup.landmarks"
+  },
+  {
+   "id": "doc.list_children",
+   "group": "doc",
+   "title": "В списке не только li",
+   "what": "посторонние прямые дети ul/ol",
+   "how": "прямые дети ul/ol, кроме li, script, template",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "low",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "content.list_children"
+  },
+  {
+   "id": "doc.table_layout",
+   "group": "doc",
+   "title": "Таблица для вёрстки",
+   "what": "таблица держит раскладку, а не данные",
+   "how": "в table нет ни th, ни caption, либо стоит role=presentation",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "content.tables_layout"
+  },
+  {
+   "id": "doc.form_no_submit",
+   "group": "doc",
+   "title": "Форма без кнопки отправки",
+   "what": "форму нечем отправить без скрипта",
+   "how": "в form нет button[type=submit] и нет input type=submit/image",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "commerce.form_no_submit"
+  },
+  {
+   "id": "doc.search_form",
+   "group": "doc",
+   "title": "Форма поиска",
+   "what": "есть ли на странице поиск по сайту",
+   "how": "input type=search, role=search или action со словом search; факт для сверки с WebSite/SearchAction",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "ориентир редактора",
+   "source_kind": "editor",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ],
+   "renamed_from": "commerce.search_form"
+  },
+  {
+   "id": "images.picture",
+   "group": "images",
+   "title": "picture с source type",
+   "what": "предложены ли современные форматы",
+   "how": "число элементов picture и типы в их source[type]",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "intl.lang_inner",
+   "group": "intl",
+   "title": "lang внутри страницы",
+   "what": "сколько разных языков объявлено у элементов",
+   "how": "уникальные значения lang у элементов внутри body",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "meta.apple_touch_icon",
+   "group": "meta",
+   "title": "apple-touch-icon",
+   "what": "иконка для iOS объявлена",
+   "how": "link rel=apple-touch-icon или apple-touch-icon-precomposed; Google принимает оба как источник favicon",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "Google «Favicon in Search» (developers.google.com/search/docs/appearance/favicon-in-search)",
+   "source_kind": "google",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "meta.manifest",
+   "group": "meta",
+   "title": "Манифест веб-приложения",
+   "what": "link rel=manifest объявлен",
+   "how": "наличие link rel=manifest",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "W3C Web Application Manifest (w3.org/TR/appmanifest/)",
+   "source_kind": "w3c",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "meta.theme_color",
+   "group": "meta",
+   "title": "theme-color",
+   "what": "цвет интерфейса для браузера",
+   "how": "meta name=theme-color; при нескольких — с разными media",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "mobile.viewport_duplicate",
+   "group": "mobile",
+   "title": "Дубли meta viewport",
+   "what": "больше одного объявления",
+   "how": "число meta name=viewport > 1",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "low",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "mobile.viewport_unknown_keys",
+   "group": "mobile",
+   "title": "Неизвестные ключи в viewport",
+   "what": "опечатки в значении",
+   "how": "ключи вне набора width, height, initial-scale, minimum-scale, maximum-scale, user-scalable, viewport-fit, interactive-widget",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "W3C CSS Device Adaptation Level 1 (w3.org/TR/css-device-adapt-1/) — First Public Working Draft 25.01.2024, не рекомендация; набор ключей meta viewport в §3.1",
+   "source_kind": "w3c",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "mobile.amphtml",
+   "group": "mobile",
+   "title": "AMP-версия объявлена",
+   "what": "есть ли link rel=amphtml",
+   "how": "наличие link rel=amphtml; отдельного преимущества в ранжировании у AMP нет (facts-2026 §14) — это факт, не находка",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "ориентир редактора",
+   "source_kind": "editor",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "mobile.x_ua_compatible",
+   "group": "mobile",
+   "title": "X-UA-Compatible",
+   "what": "наследие Internet Explorer в head",
+   "how": "meta http-equiv=X-UA-Compatible",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "ориентир редактора",
+   "source_kind": "editor",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "security.csp_unsafe_inline",
+   "group": "security",
+   "title": "unsafe-inline и unsafe-eval в CSP",
+   "what": "политика ослаблена",
+   "how": "ключевые слова 'unsafe-inline' / 'unsafe-eval' в default-src или script-src",
+   "inputs": [
+    "headers",
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "low",
+   "engine": "both",
+   "source": "W3C «Content Security Policy Level 3» (w3.org/TR/CSP3/)",
+   "source_kind": "w3c",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "security.csp_upgrade_insecure",
+   "group": "security",
+   "title": "upgrade-insecure-requests",
+   "what": "браузер сам поднимает http до https",
+   "how": "директива upgrade-insecure-requests в CSP или в meta http-equiv",
+   "inputs": [
+    "headers",
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "W3C Upgrade Insecure Requests (w3.org/TR/upgrade-insecure-requests/)",
+   "source_kind": "w3c",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "security.form_password_get",
+   "group": "security",
+   "title": "Пароль в форме с method=get",
+   "what": "пароль уходит в адресную строку",
+   "how": "в form есть input type=password, а method не post (пустой method — это get): пароль попадает в URL, историю браузера, логи и Referer",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "high",
+   "engine": "both",
+   "source": "HTML Living Standard (html.spec.whatwg.org)",
+   "source_kind": "whatwg",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "security.http_links",
+   "group": "security",
+   "title": "Обычные ссылки на http",
+   "what": "переходы на незащищённую схему",
+   "how": "ссылки a[href] на http:// со https-страницы; браузер их не блокирует — это не смешанный контент, а факт",
+   "inputs": [
+    "html"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "W3C «Mixed Content» (w3.org/TR/mixed-content/)",
+   "source_kind": "w3c",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
+  },
+  {
+   "id": "access.pagination_param",
+   "group": "access",
+   "title": "Параметр страницы в адресе",
+   "what": "по какому ключу работает пагинация",
+   "how": "в query есть page, p, offset, start, from и подобные ключи",
+   "inputs": [
+    "fetch"
+   ],
+   "scope": "page",
+   "deterministic": true,
+   "signal": "fact",
+   "severity": "info",
+   "engine": "both",
+   "source": "Google «Pagination and incremental page loading» (developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading); facts-2026 §3",
+   "source_kind": "google",
+   "status": "есть",
+   "covered_by": [
+    "page_facts.checks"
+   ]
   }
  ]
 }

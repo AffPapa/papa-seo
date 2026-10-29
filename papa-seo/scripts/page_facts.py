@@ -1123,7 +1123,7 @@ _HREFLANG_RE = re.compile(r"^(?:x-default|[a-z]{2,3}(?:-[a-z]{4})?(?:-(?:[a-z]{2
 
 
 # ------------------------------------------------------------------ page and markup checks (B)
-# Ids are the contract from plans/papa-seo-v2-2026-10-30/registry.json v0.2.0: `group.short_name`.
+# Ids are the contract from plans/papa-seo-v2-2026-10-30/registry.json v0.2.1: `group.short_name`.
 # A row whose id is not in that registry yet is marked registry="proposed" — the registry is
 # generated, so new ids go in through its generator, not by hand here.
 # `source` is where the requirement comes from. "ориентир редактора" means no search engine and no
@@ -1162,11 +1162,11 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
                                    "og:url и rel=canonical указывают на один адрес", "low",
                                    S_OGP + "; " + S_EDITOR, "contract"),
     "markup.og_duplicate": ("markup", "дубли og-свойств",
-                            "одно og-свойство объявлено больше одного раза", "low", S_OGP, "proposed"),
+                            "одно og-свойство объявлено больше одного раза", "low", S_OGP, "contract"),
     "markup.og_in_head": ("markup", "og/twitter вне <head>",
-                          "все meta с og:/twitter: лежат в <head>", "low", S_HTML, "proposed"),
+                          "все meta с og:/twitter: лежат в <head>", "low", S_HTML, "contract"),
     "markup.og_image_scheme": ("markup", "схема og:image",
-                               "og:image не по http, когда страница по https", "low", S_MIXED, "proposed"),
+                               "og:image не по http, когда страница по https", "low", S_MIXED, "contract"),
     "markup.twitter_card": ("markup", "twitter:card",
                             "twitter:card непустой и из набора summary / summary_large_image / app / player",
                             "info", S_EDITOR + " (первоисточник X недоступен — не требование)", "contract"),
@@ -1189,16 +1189,16 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
     "mobile.viewport_fixed_width": ("mobile", "фиксированная ширина viewport",
                                     "width задан числом пикселей", "medium", S_VIEWPORT, "contract"),
     "mobile.viewport_duplicate": ("mobile", "дубли meta viewport", "больше одного meta name=viewport",
-                                  "low", S_HTML, "proposed"),
+                                  "low", S_HTML, "contract"),
     "mobile.viewport_unknown_keys": ("mobile", "неизвестные ключи в viewport",
                                      "ключи вне набора width/height/initial-scale/minimum-scale/"
                                      "maximum-scale/user-scalable/viewport-fit/interactive-widget",
-                                     "info", S_VIEWPORT, "proposed"),
+                                     "info", S_VIEWPORT, "contract"),
     "mobile.amphtml": ("mobile", "AMP-версия объявлена", "есть link rel=amphtml", "info", S_EDITOR,
-                       "proposed"),
+                       "contract"),
     "mobile.x_ua_compatible": ("mobile", "X-UA-Compatible",
                                "наследие Internet Explorer: meta http-equiv=X-UA-Compatible", "info",
-                               S_EDITOR, "proposed"),
+                               S_EDITOR, "contract"),
     # --- язык, направление письма, hreflang
     "intl.html_lang": ("intl", "атрибут lang у html", "атрибут lang задан", "low",
                        S_WCAG + " (3.1.1); " + S_HTML, "contract"),
@@ -1223,7 +1223,7 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
     "intl.hreflang_x_default": ("intl", "x-default", "есть запасная версия x-default", "low", S_INTL,
                                 "contract"),
     "intl.lang_inner": ("intl", "lang внутри страницы", "сколько разных значений lang у элементов",
-                        "info", S_HTML, "proposed"),
+                        "info", S_HTML, "contract"),
     # --- иконки
     "meta.favicon_declared": ("meta", "иконка объявлена",
                               "в head есть link с rel из {icon, shortcut icon, apple-touch-icon, "
@@ -1233,11 +1233,11 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
                             "из разметки видно только заявленный sizes; пиксели — по файлу", "low",
                             S_FAVICON, "contract"),
     "meta.apple_touch_icon": ("meta", "apple-touch-icon", "есть иконка для iOS", "info", S_EDITOR,
-                              "proposed"),
+                              "contract"),
     "meta.manifest": ("meta", "web app manifest", "есть link rel=manifest", "info",
-                      "w3.org/TR/appmanifest/", "proposed"),
+                      "w3.org/TR/appmanifest/", "contract"),
     "meta.theme_color": ("meta", "theme-color", "есть meta name=theme-color", "info",
-                         "w3.org/TR/appmanifest/", "proposed"),
+                         "w3.org/TR/appmanifest/", "contract"),
     # --- заголовки безопасности и смешанный контент
     "security.https": ("security", "страница по HTTPS", "схема итогового адреса", "high", S_MIXED,
                        "contract"),
@@ -1249,10 +1249,10 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
                      "w3.org/TR/CSP3/", "contract"),
     "security.csp_unsafe_inline": ("security", "unsafe-inline / unsafe-eval в CSP",
                                    "ключевые слова в default-src или script-src", "low",
-                                   "w3.org/TR/CSP3/", "proposed"),
+                                   "w3.org/TR/CSP3/", "contract"),
     "security.csp_upgrade_insecure": ("security", "upgrade-insecure-requests",
                                       "директива в CSP или meta", "info",
-                                      "w3.org/TR/upgrade-insecure-requests/", "proposed"),
+                                      "w3.org/TR/upgrade-insecure-requests/", "contract"),
     "security.nosniff": ("security", "X-Content-Type-Options", "значение nosniff", "low",
                          "fetch.spec.whatwg.org (§nosniff)", "contract"),
     "security.referrer_policy": ("security", "Referrer-Policy", "заголовок и известное значение",
@@ -1279,13 +1279,13 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
                                        "medium", S_MIXED, "contract"),
     "security.http_links": ("security", "ссылки на http",
                             "обычные ссылки <a> на http с https-страницы (браузер их не блокирует)",
-                            "info", S_MIXED, "proposed"),
+                            "info", S_MIXED, "contract"),
     "security.form_action_http": ("security", "форма отправляет данные по http",
                                   "action с http при схеме страницы https", "high", S_MIXED,
                                   "contract"),
     "security.form_password_get": ("security", "пароль в форме с method=get",
                                    "поле type=password в форме без method=post", "high", S_HTML,
-                                   "proposed"),
+                                   "contract"),
     # --- вес документа и ресурсы
     "speed.html_bytes": ("speed", "вес HTML", "байт в полученном документе", "low", S_EDITOR,
                          "contract"),
@@ -1350,46 +1350,46 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
                                   "больше двух картинок с fetchpriority=high", "low", S_LCP,
                                   "contract"),
     "images.picture": ("images", "<picture> с <source type>",
-                       "сколько <picture> и какие типы предложены", "info", S_HTML, "proposed"),
+                       "сколько <picture> и какие типы предложены", "info", S_HTML, "contract"),
     # --- таблицы и списки
     "content.tables_markup": ("content", "таблицы размечены",
                               "у таблицы с данными есть <th> (со scope) и желательно <caption>", "low",
                               S_WCAG + " (1.3.1); " + S_HTML, "contract"),
-    "content.tables_layout": ("content", "таблица для вёрстки",
-                              "нет th и caption, или role=presentation", "info", S_HTML, "proposed"),
-    "content.lists_present": ("content", "списки в разметке", "число ul/ol/dl и пунктов", "info",
+    "doc.table_layout": ("doc", "таблица для вёрстки",
+                              "нет th и caption, или role=presentation", "info", S_HTML, "contract"),
+    "doc.lists_present": ("doc", "списки в разметке", "число ul/ol/dl и пунктов", "info",
                               S_HTML, "contract"),
-    "content.list_children": ("content", "в списке не только <li>",
-                              "прямые дети ul/ol кроме li/script/template", "low", S_HTML, "proposed"),
+    "doc.list_children": ("doc", "в списке не только <li>",
+                              "прямые дети ul/ol кроме li/script/template", "low", S_HTML, "contract"),
     # --- id, якоря, формы
-    "commerce.duplicate_ids": ("commerce", "дубли id в документе",
+    "doc.duplicate_ids": ("doc", "дубли id в документе",
                                "значение id должно быть уникальным в дереве", "low", S_HTML,
                                "contract"),
-    "commerce.anchor_targets": ("commerce", "якоря ведут в существующие места",
+    "doc.anchor_targets": ("doc", "якоря ведут в существующие места",
                                 "цели ссылок #id против множества id и name якорей документа", "low",
                                 S_HTML, "contract"),
-    "commerce.form_labels": ("commerce", "поля формы подписаны",
+    "doc.form_labels": ("doc", "поля формы подписаны",
                              "label for=/обёртка, aria-label, aria-labelledby или title у каждого поля",
                              "medium", S_WCAG + " (1.3.1, 3.3.2)", "contract"),
-    "commerce.form_autocomplete": ("commerce", "autocomplete у полей",
+    "doc.form_autocomplete": ("doc", "autocomplete у полей",
                                    "поля с намёком на персональные данные с autocomplete", "low",
                                    S_HTML + " (autofill); " + S_WCAG + " (1.3.5)", "contract"),
-    "commerce.form_required_marked": ("commerce", "обязательные поля помечены",
+    "doc.form_required_marked": ("doc", "обязательные поля помечены",
                                       "атрибут required у полей формы", "low", S_WCAG, "contract"),
-    "commerce.form_method_get": ("commerce", "форма отправки методом GET",
+    "doc.form_method_get": ("doc", "форма отправки методом GET",
                                  "form без method или с method=get при полях персональных данных",
                                  "low", S_HTML, "contract"),
-    "commerce.form_no_submit": ("commerce", "форма без кнопки отправки",
+    "doc.form_no_submit": ("doc", "форма без кнопки отправки",
                                 "нет button[type=submit] и нет input type=submit/image", "info",
-                                S_HTML, "proposed"),
-    "commerce.search_form": ("commerce", "форма поиска",
+                                S_HTML, "contract"),
+    "doc.search_form": ("doc", "форма поиска",
                              "input type=search, role=search или action с «search»", "info", S_EDITOR,
-                             "proposed"),
-    "markup.landmarks": ("markup", "ориентиры разметки", "есть ли main/nav/header/footer", "info",
-                         S_HTML, "proposed"),
+                             "contract"),
+    "doc.landmarks": ("doc", "ориентиры разметки", "есть ли main/nav/header/footer", "info",
+                         S_HTML, "contract"),
     # --- пагинация и meta refresh
     "access.pagination_param": ("access", "параметр страницы в адресе",
-                                "в query есть page/p/offset и подобные", "info", S_PAGING, "proposed"),
+                                "в query есть page/p/offset и подобные", "info", S_PAGING, "contract"),
     "access.pagination_rel": ("access", "rel=prev/next",
                               "Google их не использует, другие поисковики могут", "info", S_PAGING,
                               "contract"),
@@ -2111,23 +2111,23 @@ def markup_checks(ck: _Checks, parser: PageParser) -> dict:
                       "no_scope": len(noscope)},
                evidence=f"строка {(noth or nocap or noscope)[0]['line']}" if bad else None)
     layout = [t for t in tables if t["presentation"] or (not t["th"] and not t["caption"])]
-    ck.add("content.tables_layout", "info" if layout else "pass",
+    ck.add("doc.table_layout", "info" if layout else "pass",
            f"Похожи на таблицы для вёрстки: {len(layout)} из {len(tables)}" if layout
            else "Таблиц для вёрстки не видно", value=len(layout))
     # --- списки
     items = sum(l["items"] for l in parser.lists)
-    ck.add("content.lists_present", "info",
+    ck.add("doc.lists_present", "info",
            f"Списков: ul/ol {len(parser.lists)}, dl {parser.dl_count}, пунктов {items}",
            value={"ul_ol": len(parser.lists), "dl": parser.dl_count, "items": items})
     bad_lists = [l for l in parser.lists if l["bad_children"]]
-    ck.add("content.list_children", "warn" if bad_lists else "pass",
+    ck.add("doc.list_children", "warn" if bad_lists else "pass",
            f"Прямые дети кроме <li> у {len(bad_lists)} списков" if bad_lists
            else "В списках только <li>", value=len(bad_lists),
            evidence=f"строка {bad_lists[0]['line']}" if bad_lists else None)
     # --- id и якоря
     id_counts = Counter(i for i, _ in parser.ids)
     dupes = {i: n for i, n in id_counts.items() if n > 1}
-    ck.add("commerce.duplicate_ids", "fail" if dupes else "pass",
+    ck.add("doc.duplicate_ids", "fail" if dupes else "pass",
            f"Повторяются {len(dupes)} значений id" if dupes else f"Все {len(id_counts)} id уникальны",
            value=sorted(dupes.items(), key=lambda kv: -kv[1])[:10] or None,
            note="Список id обрезан по лимиту" if parser._ids_capped else None)
@@ -2136,22 +2136,22 @@ def markup_checks(ck: _Checks, parser: PageParser) -> dict:
     broken = [f for f in frags if f["frag"] not in known_targets]
     empty_frag = [f for f in parser.fragment_links if not f["frag"]]
     if not parser.fragment_links:
-        ck.add("commerce.anchor_targets", "skip", "Якорных ссылок на странице нет")
+        ck.add("doc.anchor_targets", "skip", "Якорных ссылок на странице нет")
     else:
-        ck.add("commerce.anchor_targets", "warn" if broken else "pass",
+        ck.add("doc.anchor_targets", "warn" if broken else "pass",
                f"Якорей без цели: {len(broken)} из {len(frags)}" if broken
                else f'Все {len(frags)} якорных ссылок попадают в элемент (href="#": {len(empty_frag)})',
                value={"broken": [f["frag"] for f in broken[:10]], "empty": len(empty_frag)})
-    ck.add("markup.landmarks", "pass" if parser.landmarks else "warn",
+    ck.add("doc.landmarks", "pass" if parser.landmarks else "warn",
            "Ориентиры: " + ", ".join(f"{k}×{n}" for k, n in sorted(parser.landmarks.items()))
            if parser.landmarks else "Нет ни main, ни nav, ни header, ни footer",
            value=dict(parser.landmarks))
     # --- формы
     forms = parser.forms
     if not forms and not parser.inputs:
-        for cid in ("commerce.form_labels", "commerce.form_autocomplete",
-                    "commerce.form_required_marked", "commerce.form_method_get",
-                    "commerce.form_no_submit", "commerce.search_form"):
+        for cid in ("doc.form_labels", "doc.form_autocomplete",
+                    "doc.form_required_marked", "doc.form_method_get",
+                    "doc.form_no_submit", "doc.search_form"):
             ck.add(cid, "skip", "Форм и полей ввода на странице нет")
         return {"tables": len(tables), "data_tables": len(data_tables), "lists": len(parser.lists),
                 "list_items": items, "dl": parser.dl_count, "ids": len(id_counts),
@@ -2175,35 +2175,35 @@ def markup_checks(ck: _Checks, parser: PageParser) -> dict:
         if inp["required"]:
             required.append(inp)
         inp["personal"] = bool(personal)
-    ck.add("commerce.form_labels", "warn" if unlabelled else "pass",
+    ck.add("doc.form_labels", "warn" if unlabelled else "pass",
            f"Без подписи: {len(unlabelled)} из {len(parser.inputs)} полей"
            + (f", из них с одним placeholder: {len(placeholder_only)}" if placeholder_only else "")
            if unlabelled else f"У всех {len(parser.inputs)} полей есть подпись",
            value={"unlabelled": len(unlabelled), "placeholder_only": len(placeholder_only),
                   "inputs": len(parser.inputs)},
            evidence=f"строка {unlabelled[0]['line']}, type={unlabelled[0]['type']}" if unlabelled else None)
-    ck.add("commerce.form_autocomplete", "warn" if no_autocomplete else "pass",
+    ck.add("doc.form_autocomplete", "warn" if no_autocomplete else "pass",
            f"Без autocomplete: {len(no_autocomplete)} полей с персональными данными" if no_autocomplete
            else "autocomplete задан там, где он нужен", value=len(no_autocomplete),
            evidence=no_autocomplete[0]["name"] if no_autocomplete else None)
-    ck.add("commerce.form_required_marked", "info",
+    ck.add("doc.form_required_marked", "info",
            f"Полей с required: {len(required)} из {len(parser.inputs)}"
            + (f"; без name: {len(no_name)}" if no_name else ""),
            value={"required": len(required), "no_name": len(no_name)})
     get_forms = [f for f in forms if f["method"] != "post" and f["inputs"]]
     personal_get = [f for f in get_forms if f["personal"]]
-    ck.add("commerce.form_method_get", "warn" if personal_get else "pass",
+    ck.add("doc.form_method_get", "warn" if personal_get else "pass",
            f"Форм с method=get и персональными полями: {len(personal_get)}" if personal_get
            else f"Персональных данных по GET не уходит (GET-форм всего {len(get_forms)})",
            value={"get_forms": len(get_forms), "with_personal": len(personal_get)},
            evidence=f"строка {personal_get[0]['line']}" if personal_get else None)
     nosubmit = [f for f in forms if not f["submit"]]
-    ck.add("commerce.form_no_submit", "info" if nosubmit else "pass",
+    ck.add("doc.form_no_submit", "info" if nosubmit else "pass",
            f"Без кнопки отправки: {len(nosubmit)} форм (может отправляться скриптом)" if nosubmit
            else "У всех форм есть кнопка отправки", value=len(nosubmit))
     search = [f for f in forms if f["search"] or f["role"] == "search"
               or "search" in (f["action"] or "").lower() or "поиск" in (f["name"] or "").lower()]
-    ck.add("commerce.search_form", "pass" if search else "info",
+    ck.add("doc.search_form", "pass" if search else "info",
            f"Форма поиска есть ({len(search)})" if search else "Формы поиска не видно", value=len(search))
     return {"tables": len(tables), "data_tables": len(data_tables), "lists": len(parser.lists),
             "list_items": items, "dl": parser.dl_count, "ids": len(id_counts),

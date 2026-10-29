@@ -112,14 +112,14 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
                                 "contract"),
     "markup.duplicate_types": ("markup", "один главный тип в нескольких сущностях",
                                "Organization/WebSite/WebPage/BreadcrumbList встречается больше раза",
-                               "info", S_EDITOR, "proposed"),
+                               "info", S_EDITOR, "contract"),
     "commerce.aggregate_offer_misuse": ("commerce", "AggregateOffer на странице продажи",
                                         "AggregateOffer внутри Product с offers", "medium",
                                         S_MERCHANT, "contract"),
 }
 
 # ------------------------------------------------------------- обязательные поля по типам (markup.req_*)
-# Состав списков — из registry.json v0.2.0 (рецепты агента A по документации Google) и facts-2026 §6.
+# Состав списков — из registry.json v0.2.1 (рецепты агента A по документации Google) и facts-2026 §6.
 # Запись в required: "prop" | ("any", [props]) | ("deep", prop, subprop) | ("special", key)
 REQ_RULES: list[dict] = [
     {"id": "markup.req_article", "title": "Article / NewsArticle / BlogPosting",

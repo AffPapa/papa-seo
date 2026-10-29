@@ -1,8 +1,7 @@
 """page_facts checks: Open Graph, viewport, lang/dir, favicon, security headers, mixed content,
 resources, image attributes, tables/lists/anchors/forms, pagination.
 
-Ids follow plans/papa-seo-v2-2026-10-30/registry.json v0.2.0 (`group.short_name`). Rows whose id is
-not in that registry yet carry registry="proposed".
+Ids follow plans/papa-seo-v2-2026-10-30/registry.json v0.2.1 (`group.short_name`). Каждая строка названа именем из реестра (registry="contract").
 """
 from __future__ import annotations
 
@@ -85,8 +84,8 @@ class ContractTest(unittest.TestCase):
                 self.assertEqual(row["severity"], "info", row["id"])
 
     def test_ids_are_group_dot_name_and_groups_are_registry_groups(self):
-        groups = {"access", "markup", "meta", "content", "images", "links", "speed", "mobile",
-                  "security", "intl", "ai", "commerce"}
+        groups = {"access", "markup", "doc", "meta", "content", "images", "links", "speed",
+                  "mobile", "security", "intl", "ai", "commerce"}
         for cid, meta in pf.CHECK_META.items():
             self.assertRegex(cid, r"^[a-z]+\.[a-z0-9_]+$", cid)
             self.assertEqual(cid.split(".")[0], meta[0], cid)
@@ -225,11 +224,11 @@ class PoorPageTest(unittest.TestCase):
     def test_forms(self):
         self.expect("security.form_action_http", "fail")
         self.expect("security.form_password_get", "fail")
-        self.expect("commerce.form_labels", "warn")
-        self.expect("commerce.form_autocomplete", "warn")
-        self.expect("commerce.form_method_get", "warn")
-        self.assertEqual(self.rows["commerce.form_labels"]["value"]["unlabelled"], 2)
-        self.assertEqual(self.rows["commerce.form_labels"]["value"]["placeholder_only"], 1)
+        self.expect("doc.form_labels", "warn")
+        self.expect("doc.form_autocomplete", "warn")
+        self.expect("doc.form_method_get", "warn")
+        self.assertEqual(self.rows["doc.form_labels"]["value"]["unlabelled"], 2)
+        self.assertEqual(self.rows["doc.form_labels"]["value"]["placeholder_only"], 1)
 
     def test_images(self):
         self.expect("images.alt_missing", "fail")
@@ -241,12 +240,12 @@ class PoorPageTest(unittest.TestCase):
 
     def test_markup_structure(self):
         self.expect("content.tables_markup", "warn")
-        self.expect("content.list_children", "warn")
-        self.expect("commerce.duplicate_ids", "fail")
-        self.expect("commerce.anchor_targets", "warn")
-        self.expect("markup.landmarks", "warn")
-        self.assertEqual(self.rows["commerce.anchor_targets"]["value"]["broken"], ["missing-anchor"])
-        self.assertEqual(self.rows["commerce.anchor_targets"]["value"]["empty"], 1)
+        self.expect("doc.list_children", "warn")
+        self.expect("doc.duplicate_ids", "fail")
+        self.expect("doc.anchor_targets", "warn")
+        self.expect("doc.landmarks", "warn")
+        self.assertEqual(self.rows["doc.anchor_targets"]["value"]["broken"], ["missing-anchor"])
+        self.assertEqual(self.rows["doc.anchor_targets"]["value"]["empty"], 1)
 
     def test_pagination_and_refresh(self):
         self.expect("access.pagination_param", "info")
@@ -289,8 +288,8 @@ class NoDataTest(unittest.TestCase):
     def test_page_without_images_or_forms_skips_them(self):
         html = "<!doctype html><html lang=en><head><title>t</title></head><body><p>x</p></body></html>"
         rows = by_id(pf.analyze_html(html, url="https://a.test/"))
-        for cid in ("images.alt_missing", "images.dimensions", "commerce.form_labels",
-                    "content.tables_markup", "commerce.anchor_targets"):
+        for cid in ("images.alt_missing", "images.dimensions", "doc.form_labels",
+                    "content.tables_markup", "doc.anchor_targets"):
             self.assertEqual(rows[cid]["status"], "skip", cid)
 
 
@@ -396,28 +395,28 @@ class FormDetailTest(unittest.TestCase):
             '<input name="d" aria-labelledby="lbl"><span id="lbl">D</span>'
             '<input type="hidden" name="csrf" value="1">'
             '<button type="submit">go</button></form>')
-        self.assertEqual(rows["commerce.form_labels"]["value"]["inputs"], 4)  # hidden не считается
-        self.assertEqual(rows["commerce.form_labels"]["status"], "pass")
+        self.assertEqual(rows["doc.form_labels"]["value"]["inputs"], 4)  # hidden не считается
+        self.assertEqual(rows["doc.form_labels"]["status"], "pass")
 
     def test_get_search_form_is_not_a_finding(self):
         rows, _ = self.rows_for('<form action="/search" method="get" role="search">'
                                 '<label for="q">q</label><input type="search" id="q" name="q">'
                                 '<button>go</button></form>')
-        self.assertEqual(rows["commerce.form_method_get"]["status"], "pass")
-        self.assertEqual(rows["commerce.search_form"]["status"], "pass")
+        self.assertEqual(rows["doc.form_method_get"]["status"], "pass")
+        self.assertEqual(rows["doc.search_form"]["status"], "pass")
 
     def test_get_form_with_personal_field_is_a_finding(self):
         rows, _ = self.rows_for('<form action="/x" method="get">'
                                 '<label for="e">e</label><input type="email" id="e" name="email">'
                                 '</form>')
-        self.assertEqual(rows["commerce.form_method_get"]["status"], "warn")
+        self.assertEqual(rows["doc.form_method_get"]["status"], "warn")
 
     def test_autocomplete_only_asked_for_personal_fields(self):
         rows, _ = self.rows_for('<form method=post action="/x">'
                                 '<label for="q">q</label><input id="q" name="query">'
                                 '<label for="p">p</label><input id="p" name="user_phone">'
                                 '</form>')
-        self.assertEqual(rows["commerce.form_autocomplete"]["value"], 1)
+        self.assertEqual(rows["doc.form_autocomplete"]["value"], 1)
 
 
 class TableListAnchorTest(unittest.TestCase):
@@ -428,7 +427,7 @@ class TableListAnchorTest(unittest.TestCase):
     def test_layout_table_is_info_not_a_defect(self):
         rows = self.rows_for('<table role="presentation"><tr><td>a</td><td>b</td></tr></table>')
         self.assertEqual(rows["content.tables_markup"]["status"], "skip")
-        self.assertEqual(rows["content.tables_layout"]["status"], "info")
+        self.assertEqual(rows["doc.table_layout"]["status"], "info")
 
     def test_data_table_with_caption_and_scope_passes(self):
         rows = self.rows_for('<table><caption>c</caption><tr><th scope="col">h</th></tr>'
@@ -437,12 +436,12 @@ class TableListAnchorTest(unittest.TestCase):
 
     def test_nested_list_counts_items_not_bad_children(self):
         rows = self.rows_for('<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>')
-        self.assertEqual(rows["content.list_children"]["status"], "pass")
-        self.assertEqual(rows["content.lists_present"]["value"]["items"], 3)
+        self.assertEqual(rows["doc.list_children"]["status"], "pass")
+        self.assertEqual(rows["doc.lists_present"]["value"]["items"], 3)
 
     def test_anchor_to_name_attribute_resolves(self):
         rows = self.rows_for('<a name="old">x</a><a href="#old">go</a>')
-        self.assertEqual(rows["commerce.anchor_targets"]["status"], "pass")
+        self.assertEqual(rows["doc.anchor_targets"]["status"], "pass")
 
 
 class DocumentAndHeaderTest(unittest.TestCase):
