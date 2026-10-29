@@ -117,7 +117,7 @@ class UrlPolicyTest(unittest.TestCase):
 
     def test_constants(self):
         self.assertEqual(hs.DEFAULT_DELAY, 2.0)
-        self.assertEqual(hs.USER_AGENT, "papa-seo/0.1 (+https://affpapa.org/papa-seo)")
+        self.assertEqual(hs.USER_AGENT, "papa-seo/0.2 (+https://github.com/AffPapa/papa-seo)")
         self.assertEqual(hs.MAX_BODY, 5 * 1024 * 1024)
         self.assertEqual(hs.Fetcher().delay, 2.0)
 

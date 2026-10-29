@@ -57,7 +57,7 @@ except ImportError:  # pragma: no cover
 
 __version__ = "0.1.1"
 
-USER_AGENT = "papa-seo/0.1 (+https://affpapa.org/papa-seo)"
+USER_AGENT = "papa-seo/0.2 (+https://github.com/AffPapa/papa-seo)"
 DEFAULT_DELAY = 2.0          # seconds between requests (SPEC §2 rule 3)
 DEFAULT_TIMEOUT = 10.0       # per socket operation
 DEFAULT_HOP_DEADLINE = 30.0  # whole request+body of one hop
