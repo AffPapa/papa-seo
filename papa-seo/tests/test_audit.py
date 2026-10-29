@@ -58,10 +58,12 @@ class TestRegistry(unittest.TestCase):
         p = reg["params"][0]
         for field in ("id", "group", "title", "severity", "scope", "signal", "deterministic"):
             self.assertIn(field, p)
-        self.assertIn(p["group"], au.GROUP_SLUGS)
+        self.assertIn(p["group"], set(au.GROUP_SLUGS) | set(au.REGISTRY_GROUPS))
 
     def test_groups_normalised(self):
-        self.assertEqual(au.group_slug("intl"), "i18n")
+        self.assertEqual(au.group_slug("intl"), "intl")
+        self.assertEqual(au.group_slug("i18n"), "intl")
+        self.assertEqual(au.group_slug("doc"), "doc", "новая группа реестра не теряется")
         self.assertEqual(au.group_slug("social"), "markup")
         self.assertEqual(au.group_slug("index"), "access")
         self.assertEqual(au.group_slug("Доступность и индексация"), "access")
@@ -104,7 +106,7 @@ class TestImportedChecks(unittest.TestCase):
         self.assertGreater(len(from_script), 30, "page_facts отдаёт свои проверки, их надо забрать")
         for row in from_script:
             self.assertIn(row["verdict"], au.VERDICT_RU)
-            self.assertIn(row["group"], au.GROUP_SLUGS)
+            self.assertIn(row["group"], set(au.GROUP_SLUGS) | set(au.REGISTRY_GROUPS))
 
     def test_status_mapping(self):
         bundle = {"page": {"checks": [
@@ -539,3 +541,35 @@ class TestManyPagesNetwork(unittest.TestCase):
         self.assertEqual(rows_by_id(pages[0])["access.robots_googlebot"]["verdict"], au.OK)
         self.assertEqual(rows_by_id(pages[1])["access.robots_googlebot"]["verdict"], au.BAD,
                          "таблица доступа считается для каждого адреса своя")
+
+
+class TestGroupsFromRegistry(unittest.TestCase):
+    """Группы берутся из реестра: новая группа появляется в отчёте без правок в коде."""
+
+    def test_report_keeps_registry_group_order_and_titles(self):
+        reg = au.load_registry()
+        page = audit_file(BASIC)
+        rep = au.build_report([page], registry=reg, keys=[], options={"delay": 2.0},
+                              requests_made=0)
+        shown = [g["group"] for g in rep["pages"][0]["groups"]]
+        want = [g for g in (x["id"] for x in
+                            json.load(open(reg["source"], encoding="utf-8"))["groups"])
+                if g in shown]
+        self.assertEqual(shown, want, "порядок групп — как в реестре")
+        titles = {g["group"]: g["title"] for g in rep["pages"][0]["groups"]}
+        self.assertEqual(titles.get("doc"), "Разметка документа")
+        self.assertIn("Разметка документа", au.render_html(rep))
+
+    def test_unknown_registry_group_is_not_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "registry.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"version": "test", "groups": [{"id": "brandnew", "title": "Новая группа"}],
+                           "params": [{"id": "brandnew.one", "group": "brandnew", "title": "Раз",
+                                       "severity": "low", "scope": "page"}]}, fh)
+            reg = au.load_registry(path)
+            self.assertEqual(reg["params"][0]["group"], "brandnew")
+            merged = au.merge_registry([], reg, au.CHECKS, pages=1, scope="page")
+            groups = au.group_rows(merged, reg)
+        self.assertEqual([g["title"] for g in groups], ["Новая группа"])
+        au.load_registry()  # вернуть глобальные группы к рабочему реестру

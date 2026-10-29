@@ -63,17 +63,20 @@ SEVERITY_RANK = {s: i for i, s in enumerate(SEVERITIES)}
 DET, HEUR = "deterministic", "heuristic"
 KIND_RU = {DET: "факт", HEUR: "оценка"}
 
+# Группы: порядок и названия берутся из реестра, как только он прочитан (REGISTRY_GROUPS).
+# Этот список — запас на случай, когда реестра нет, и источник названий для своих проверок.
 GROUPS = [
     ("access", "Доступность и индексация"),
     ("meta", "Заголовки и мета"),
     ("markup", "Разметка"),
+    ("doc", "Разметка документа"),
     ("content", "Контент и текст"),
     ("images", "Изображения"),
     ("links", "Ссылки"),
     ("speed", "Скорость"),
     ("mobile", "Мобильность"),
     ("security", "Безопасность"),
-    ("i18n", "Интернационализация"),
+    ("intl", "Интернационализация"),
     ("ai", "AI-поиск"),
     ("commerce", "Коммерческие сигналы"),
     ("site", "Сайт целиком"),
@@ -81,17 +84,22 @@ GROUPS = [
 ]
 GROUP_TITLE = dict(GROUPS)
 GROUP_SLUGS = [g for g, _ in GROUPS]
-# Названия групп в реестре могут отличаться: сопоставляем по ключевым словам, а не по точной строке.
+# Группы прочитанного реестра: слаг → {title, about, order}. Новая группа в реестре появляется
+# в отчёте сама, без правок здесь.
+REGISTRY_GROUPS: dict[str, dict] = {}
 # Группы, которыми размечают свои проверки сами скрипты пакета (page_facts, text_metrics).
 GROUP_DIRECT = {
     "social": "markup", "icons": "markup", "schema": "markup", "markup": "markup",
+    "doc": "doc", "document": "doc",
     "index": "access", "indexing": "access", "onpage": "meta", "meta": "meta",
     "text": "content", "content": "content", "images": "images", "links": "links",
-    "speed": "speed", "mobile": "mobile", "security": "security", "i18n": "i18n",
-    "intl": "i18n", "international": "i18n",
+    "speed": "speed", "mobile": "mobile", "security": "security",
+    "intl": "intl", "i18n": "intl", "international": "intl",
     "ai": "ai", "geo": "ai", "commerce": "commerce", "site": "site",
 }
+# Названия групп в реестре могут отличаться от наших: сопоставляем по ключевым словам.
 GROUP_KEYWORDS = [
+    ("doc", ("разметка документа", "document markup", "форм", "таблиц", "якор")),
     ("access", ("доступн", "индекс", "краул", "crawl", "robots", "sitemap", "redirect", "редирект",
                 "canonical", "технич", "technical")),
     ("meta", ("мета", "meta", "title", "тайтл", "сниппет", "snippet", "description", "заголовки и мета")),
@@ -102,11 +110,27 @@ GROUP_KEYWORDS = [
     ("speed", ("скорост", "производит", "speed", "performance", "cwv", "core web")),
     ("mobile", ("мобильн", "mobile", "адаптив", "viewport")),
     ("security", ("безопасн", "security", "https", "заголовки безопасности")),
-    ("i18n", ("интернацион", "hreflang", "язык", "lang", "international", "локал")),
+    ("intl", ("интернацион", "hreflang", "язык", "lang", "international", "локал")),
     ("ai", ("ai", "ии", "llm", "geo", "нейро", "генератив")),
     ("commerce", ("коммерч", "commerc", "магазин", "ecommerce", "доверие", "trust", "контакт")),
     ("site", ("сайт целиком", "site-wide", "sitewide", "по сайту", "дубл")),
 ]
+
+
+def group_title(slug: str) -> str:
+    """Название группы: сначала то, как её зовёт реестр, потом наше."""
+    meta = REGISTRY_GROUPS.get(slug) or {}
+    return meta.get("title") or GROUP_TITLE.get(slug, slug)
+
+
+def group_order(slug: str) -> tuple:
+    """Порядок групп: как в реестре; чего там нет — следом, в нашем порядке."""
+    meta = REGISTRY_GROUPS.get(slug)
+    if meta and meta.get("order") is not None:
+        return (0, meta["order"], slug)
+    if slug in GROUP_SLUGS:
+        return (1, GROUP_SLUGS.index(slug), slug)
+    return (2, 0, slug)
 
 
 def group_slug(name: str | None) -> str:
@@ -114,7 +138,7 @@ def group_slug(name: str | None) -> str:
     if not name:
         return "other"
     low = str(name).strip().lower()
-    if low in GROUP_SLUGS:
+    if low in REGISTRY_GROUPS or low in GROUP_SLUGS:
         return low
     if low in GROUP_DIRECT:
         return GROUP_DIRECT[low]
@@ -237,9 +261,14 @@ def load_registry(path: str | None = None) -> dict:
             continue
         groups = {}
         if isinstance(parsed, dict):
-            for g in parsed.get("groups") or []:
+            for order, g in enumerate(parsed.get("groups") or []):
                 if isinstance(g, dict) and g.get("id"):
-                    groups[group_slug(g["id"])] = {"title": g.get("title"), "about": g.get("about")}
+                    slug = str(g["id"]).strip().lower()
+                    groups[slug] = {"title": g.get("title"), "about": g.get("about"), "order": order}
+        REGISTRY_GROUPS.clear()
+        REGISTRY_GROUPS.update(groups)
+        for param in items:  # группы могли стать известны только сейчас
+            param["group"] = group_slug(param["group_raw"]) or param["group"]
         version = parsed.get("version") if isinstance(parsed, dict) else None
         rules = parsed.get("rules") if isinstance(parsed, dict) else None
         return {"params": items, "groups": groups, "source": cand, "version": version,
@@ -1982,7 +2011,7 @@ def run_checks(ctx: Facts, checks: list[Check], arg) -> list[dict]:
         if not isinstance(result, dict):
             result = {"verdict": NODATA, "observation": "проверка ничего не вернула", "severity": "info"}
         row = {
-            "id": chk.id, "group": chk.group, "group_title": GROUP_TITLE.get(chk.group, chk.group),
+            "id": chk.id, "group": chk.group, "group_title": group_title(chk.group),
             "title": chk.title, "kind": chk.kind, "kind_label": KIND_RU[chk.kind],
             "source": chk.source, "severity": chk.severity, "in_registry": False,
         }
@@ -2023,7 +2052,7 @@ def imported_rows(bundle: dict) -> list[dict]:
             kind = HEUR if "ориентир" in source or "эвристик" in source or "оценка" in source else DET
             rows.append({
                 "id": str(item["id"]), "group": group_slug(item.get("group")),
-                "group_title": GROUP_TITLE.get(group_slug(item.get("group")), "Прочее"),
+                "group_title": group_title(group_slug(item.get("group"))),
                 "title": str(item.get("title") or item["id"]),
                 "verdict": verdict, "verdict_label": VERDICT_RU[verdict], "severity": severity,
                 "kind": kind, "kind_label": KIND_RU[kind], "source": source or None,
@@ -2071,7 +2100,7 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
         row = _row_for(pid, by_id, index)
         base = {
             "registry_id": pid, "group": param["group"],
-            "group_title": GROUP_TITLE.get(param["group"], param["group"]),
+            "group_title": group_title(param["group"]),
             "title": param["title"], "registry_what": param["what"],
             "registry_how": param["how"], "registry_severity": param["severity"],
             "registry_status": param["status"], "scope": param["scope"],
@@ -2115,13 +2144,12 @@ def group_rows(rows: list[dict], registry: dict | None = None) -> list[dict]:
     buckets: dict[str, list[dict]] = {}
     for row in rows:
         buckets.setdefault(row["group"], []).append(row)
-    order = {slug: i for i, slug in enumerate(GROUP_SLUGS)}
     out = []
-    for slug in sorted(buckets, key=lambda s: order.get(s, 99)):
+    for slug in sorted(buckets, key=group_order):
         items = sorted(buckets[slug], key=lambda r: (VERDICT_ORDER.index(r["verdict"]),
                                                      SEVERITY_RANK.get(r["severity"], 9), r["title"]))
         meta = groups_meta.get(slug) or {}
-        out.append({"group": slug, "title": meta.get("title") or GROUP_TITLE.get(slug, slug),
+        out.append({"group": slug, "title": meta.get("title") or group_title(slug),
                     "about": meta.get("about"), "totals": totals_of(items),
                     "params": [r for r in items if r["verdict"] != NOTCHECKED],
                     "not_checked": [r for r in items if r["verdict"] == NOTCHECKED]})
@@ -2603,7 +2631,7 @@ def text_summary(report: dict) -> str:
 # ---------------------------------------------------------------------------- CLI
 
 def list_checks() -> dict:
-    rows = [{"id": c.id, "group": c.group, "group_title": GROUP_TITLE.get(c.group, c.group),
+    rows = [{"id": c.id, "group": c.group, "group_title": group_title(c.group),
              "title": c.title, "severity": c.severity, "kind": c.kind, "source": c.source,
              "scope": "site" if c in SITE_CHECKS else "page"}
             for c in CHECKS + SITE_CHECKS]
