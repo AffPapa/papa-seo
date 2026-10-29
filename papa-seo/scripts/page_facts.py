@@ -2376,10 +2376,14 @@ def doc_and_header_checks(ck: _Checks, parser: PageParser, headers: dict, fetch:
             ck.add("speed.ttfb", status, f"Ответ за {ms} мс (один замер)", value=ms,
                    note="Один замер — не метрика: ориентир web.dev ≤ 800 мс / > 1800 мс плохо, "
                         "и TTFB в Core Web Vitals не входит")
+        # В chain лежит и сам итоговый ответ, поэтому «нет редиректов» — это chain длиной 1.
+        # Считаем только шаги, которые и были перенаправлением (3xx с Location).
         chain = fetch.get("chain") or []
-        ck.add("speed.redirect_before_page", "warn" if chain else "pass",
-               f"До страницы было переходов: {len(chain)}" if chain else "Редиректов до страницы нет",
-               value=[c.get("status") for c in chain if isinstance(c, dict)] or len(chain))
+        hops = [c for c in chain if isinstance(c, dict)
+                and isinstance(c.get("status"), int) and 300 <= c["status"] < 400]
+        ck.add("speed.redirect_before_page", "warn" if hops else "pass",
+               f"До страницы было переходов: {len(hops)}" if hops else "Редиректов до страницы нет",
+               value=[c.get("status") for c in hops] or 0)
         ok = str(fetch.get("final_url", "")).lower().startswith("https://")
         ck.add("security.tls_chain_ok", "pass" if ok else "skip",
                "Запрос по https прошёл без ошибки TLS" if ok

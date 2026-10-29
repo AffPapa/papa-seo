@@ -1020,7 +1020,12 @@ def c_clerical(ctx):
     cler = ctx.get("clerical") or {}
     deai = ctx.bundle.get("deai") or {}
     hits = deai.get("hits") or []
-    strong = [h for h in hits if h.get("strength") in ("strong", "medium")]
+    # Только те правила deai_scan, которые и есть штамп или след переписки с моделью.
+    # Повтор зачинов и ровные серии длин — это ритм, у него своя строка (content.rhythm_uniform):
+    # без этой отсечки английская страница документации получала «19 штампов» за 19 абзацев,
+    # где подряд идущие предложения начинались с «this» или «if».
+    strong = [h for h in hits if h.get("strength") in ("strong", "medium")
+              and h.get("id") in ("stamp", "chat_residue", "javlyaetsya_density")]
     cler_total = _n(cler.get("total"))
     per_1000 = cler.get("per_1000_words")
     nominal = _n(dig(cler, "nominal_nouns.count"))
@@ -1037,11 +1042,13 @@ def c_clerical(ctx):
     if not sample:
         sample = "; ".join(esc(m.get("match") or m.get("word"), 60)
                            for m in (cler.get("markers") or [])[:4] if isinstance(m, dict))
+    text = ", ".join(bits)
+    text = text[:1].upper() + text[1:]
     if strong or cler_total >= 3:
-        return warn(", ".join(bits), evidence=sample or None,
+        return warn(text, evidence=sample or None,
                     fix="Удалять лучше, чем дописывать: штамп убрать, канцелярит развернуть в действие")
     if bits:
-        return info(", ".join(bits), evidence=sample or None)
+        return info(text, evidence=sample or None)
     return ok("Штампов и канцелярита не нашли")
 
 
@@ -1311,7 +1318,11 @@ def is_commercial(ctx) -> bool:
     types = {t.lower() for t in (ctx.get("schema_types") or [])}
     if types & {"offer", "aggregateoffer", "product", "localbusiness", "service", "order"}:
         return True
-    return _n(dig(ctx.bundle, "page.markup.forms")) > 0
+    # Сама по себе форма признаком продажи не считается: поиск по сайту есть почти везде,
+    # и раньше из-за него коммерческими объявлялись страницы документации. GET-форма по
+    # RFC 9110 §9.2.1 безопасна и ничего не меняет — заказ отправляют методом POST.
+    forms = dig(ctx.bundle, "page.markup.form_list") or []
+    return any((f.get("method") or "").lower() not in ("", "get") for f in forms)
 
 
 def _visible(ctx) -> str:
@@ -1414,8 +1425,11 @@ def c_nav_without_href(ctx):
     if not links:
         return nodata("Ссылок нет")
     nav_regions = {"nav", "header", "footer"}
+    # kind == "fragment" — обычная ссылка на якорь той же страницы (оглавление, «наверх»,
+    # аккордеон). Поисковик по ней ходит, адрес у неё есть; в находку идут только те,
+    # у которых адреса нет вообще или переход сделан скриптом.
     broken = [l for l in links if l.get("region") in nav_regions
-              and l.get("kind") in ("none", "javascript", "fragment")]
+              and l.get("kind") in ("none", "javascript")]
     if broken:
         return warn(f"В меню и подвале {len(broken)} «ссылок» без настоящего адреса",
                     evidence=esc("; ".join((l.get("text") or l.get("kind") or "") for l in broken[:5]), 200),
@@ -2161,12 +2175,18 @@ def totals_of(rows: list[dict]) -> dict:
     return {v: counts.get(v, 0) for v in VERDICT_ORDER} | {"all": len(rows)}
 
 
-def fix_first(rows: list[dict], *, page: str | None = None, limit: int = 15) -> list[dict]:
+def fix_first(rows: list[dict], *, page: str | None = None, limit: int = 15,
+              registry: dict | None = None) -> list[dict]:
+    # Название группы берём там же, где его берут заголовки разделов (group_rows): иначе
+    # в «чинить первым» стоит «Прочее», а раздел ниже называется иначе, и находку не найти.
+    groups_meta = (registry or {}).get("groups") or {}
     hits = [r for r in rows if r["verdict"] in (BAD, WARN)]
     hits.sort(key=lambda r: (SEVERITY_RANK.get(r["severity"], 9), VERDICT_ORDER.index(r["verdict"])))
     out = []
     for row in hits[:limit]:
-        item = {"id": row["id"], "title": row["title"], "group_title": row["group_title"],
+        meta = groups_meta.get(row["group"]) or {}
+        item = {"id": row["id"], "title": row["title"],
+                "group_title": meta.get("title") or row["group_title"],
                 "severity": row["severity"], "verdict": row["verdict"],
                 "observation": row.get("observation"), "fix": row.get("fix")}
         if page:
@@ -2258,17 +2278,17 @@ def build_report(pages: list[dict], *, registry: dict, keys: list[str], options:
             "target": p["target"], "url": p.get("url"), "status": p.get("status"),
             "title": esc(p.get("title"), 160), "totals": totals_of(merged),
             "blocking": blocking_of(merged), "groups": group_rows(merged, registry),
-            "fix_first": fix_first(merged, page=label if many else None),
+            "fix_first": fix_first(merged, page=label if many else None, registry=registry),
         })
         all_rows.extend(merged)
-        fixes.extend(fix_first(merged, page=label if many else None))
+        fixes.extend(fix_first(merged, page=label if many else None, registry=registry))
     site_raw = run_checks(None, SITE_CHECKS, ok_pages) if len(ok_pages) > 1 else []
     site_rows = merge_registry(site_raw, registry, SITE_CHECKS, pages=len(ok_pages), scope="site")
     site = None
     if site_rows:
         site = {"pages": len(ok_pages), "totals": totals_of(site_rows),
                 "groups": group_rows(site_rows, registry),
-                "fix_first": fix_first(site_rows)}
+                "fix_first": fix_first(site_rows, registry=registry)}
         all_rows.extend(site_rows)
         fixes = site["fix_first"] + fixes
     checked_ids = {r.get("registry_id") for r in all_rows
@@ -2402,6 +2422,16 @@ a{color:#000;text-decoration:none}
 """
 
 
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    """«1 проблема», «2 проблемы», «5 проблем»: иначе сводка читается как машинный вывод."""
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
 def _h(value) -> str:
     return html_mod.escape("" if value is None else str(value), quote=True)
 
@@ -2465,8 +2495,10 @@ def _groups_html(groups: list[dict], *, prefix: str = "") -> str:
             out.extend(_row_html(r) for r in grp["params"])
             out.append("</tbody></table>")
         if grp["not_checked"]:
-            out.append(f'<details><summary>Не проверяли: {len(grp["not_checked"])} '
-                       "параметров реестра</summary><div class=\"after-summary\">" + TABLE_HEAD)
+            n = len(grp["not_checked"])
+            out.append(f'<details><summary>Не проверяли: {n} '
+                       f'{_plural(n, "параметр", "параметра", "параметров")} реестра</summary>'
+                       '<div class="after-summary">' + TABLE_HEAD)
             out.extend(_row_html(r) for r in grp["not_checked"])
             out.append("</tbody></table></div></details>")
     return "\n".join(out)
@@ -2499,7 +2531,9 @@ def render_html(report: dict) -> str:
     target = first.get("url") or first.get("target") or "—"
     many = len(report["pages"]) > 1
     head_title = "Проверка сайта" if many else "Проверка страницы"
-    cards = [(t[BAD], "проблем"), (t[WARN], "предупреждений"), (t[OK], "в норме"),
+    cards = [(t[BAD], _plural(t[BAD], "проблема", "проблемы", "проблем")),
+             (t[WARN], _plural(t[WARN], "предупреждение", "предупреждения", "предупреждений")),
+             (t[OK], "в норме"),
              (t[NODATA], "нет данных"), (t[NOTCHECKED], "не проверяли")]
     parts = [
         "<!doctype html>", '<html lang="ru"><head><meta charset="utf-8">',

@@ -358,6 +358,34 @@ class ValueFormatTest(unittest.TestCase):
         r = check_jsonld(node, visible="Кофемолка Б3 стоит 12990,5 рубля")
         self.assertEqual(status_of(r, "markup.visible_values"), "pass")
 
+    def test_visible_values_ignores_nbsp_and_typographic_dashes(self):
+        """&nbsp; и неразрывный дефис в разметке — не повод говорить «значения не видны»."""
+        node = self.ctx({"@type": "Article",
+                         "headline": "Как я написал TUN‑клиент на Rust"})
+        r = check_jsonld(node, visible="Как я написал TUN-клиент на Rust — и что вышло")
+        self.assertEqual(status_of(r, "markup.visible_values"), "pass")
+
+    def test_visible_values_ignores_soft_hyphen_and_quotes(self):
+        node = self.ctx({"@type": "Product", "name": "Кофемолка «Барратца» Б3"})
+        r = check_jsonld(node, visible="Ко­фемолка “Барратца” Б3 в наличии")
+        self.assertEqual(status_of(r, "markup.visible_values"), "pass")
+
+    def test_visible_values_matches_price_with_thousands_separator(self):
+        """«4 578 ₽» на странице — это цена 4578 из разметки, а не расхождение."""
+        node = self.ctx({"@type": "Offer", "price": 4578, "priceCurrency": "RUB"})
+        r = check_jsonld(node, visible="Курс стоит 4 578 ₽ в месяц")
+        self.assertEqual(status_of(r, "markup.visible_values"), "pass")
+
+    def test_visible_values_still_catches_a_price_that_is_not_on_the_page(self):
+        node = self.ctx({"@type": "Offer", "price": 4578, "priceCurrency": "RUB"})
+        r = check_jsonld(node, visible="Курс стоит 9 900 ₽ в месяц")
+        self.assertEqual(status_of(r, "markup.visible_values"), "fail")
+
+    def test_visible_values_still_catches_a_name_that_is_not_on_the_page(self):
+        node = self.ctx({"@type": "Product", "name": "Кофемолка Б3"})
+        r = check_jsonld(node, visible="Здесь про чайники и ничего больше")
+        self.assertEqual(status_of(r, "markup.visible_values"), "fail")
+
 
 class InputModeTest(unittest.TestCase):
     def test_json_file_input(self):

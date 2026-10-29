@@ -573,3 +573,100 @@ class TestGroupsFromRegistry(unittest.TestCase):
             groups = au.group_rows(merged, reg)
         self.assertEqual([g["title"] for g in groups], ["Новая группа"])
         au.load_registry()  # вернуть глобальные группы к рабочему реестру
+
+
+class TestFalsePositivesFromRealSites(unittest.TestCase):
+    """Находки, которые на чужих сайтах оказались ложными (QA 30.10.2026)."""
+
+    DOCS = """<!doctype html><html lang="en"><head><title>json — encoder and decoder</title>
+<meta name="description" content="Source code and reference for the json module."></head><body>
+<nav><ul>
+<li><a href="#basic-usage">Basic Usage</a></li>
+<li><a href="#encoders">Encoders and Decoders</a></li>
+<li><a href="#exceptions">Exceptions</a></li>
+</ul></nav>
+<form action="/search.html" method="get" role="search"><input name="q"><button>Go</button></form>
+<main><h1>json — encoder and decoder</h1>
+<h2 id="basic-usage">Basic Usage</h2><p>The json module exposes an API familiar to users of
+the standard library marshal and pickle modules.</p>
+<h2 id="encoders">Encoders and Decoders</h2><p>JSON decoder objects translate a document.</p>
+<h2 id="exceptions">Exceptions</h2><p>Subclass of ValueError with additional properties.</p>
+</main></body></html>"""
+
+    SHOP = """<!doctype html><html lang="ru"><head><title>Кофемолка Б3 — купить</title></head><body>
+<main><h1>Кофемолка Б3</h1><p>Цена 4 578 ₽, доставка по России.</p>
+<form action="/order" method="post"><label for="t">Телефон</label><input id="t" name="tel"></form>
+</main></body></html>"""
+
+    def rows(self, html, url):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "page.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+            page = au.audit_page(path, fetcher=None, keys=[],
+                                 options={"base_url": url, "robots": False})
+        return rows_by_id(page)
+
+    def test_fragment_links_in_nav_are_not_links_without_an_address(self):
+        row = self.rows(self.DOCS, "https://docs.example.org/3/library/json.html")
+        self.assertEqual(row["access.nav_without_href"]["verdict"], au.OK,
+                         "оглавление на якорях — обычные ссылки, а не переходы без адреса")
+
+    def test_search_form_alone_does_not_make_a_page_commercial(self):
+        row = self.rows(self.DOCS, "https://docs.example.org/3/library/json.html")
+        self.assertEqual(row["commerce.contacts_visible"]["verdict"], au.INFO,
+                         "страница документации без цен — не повод требовать телефон")
+
+    def test_order_form_with_a_price_still_asks_for_contacts(self):
+        row = self.rows(self.SHOP, "https://shop.example/kofemolka-b3/")
+        self.assertEqual(row["commerce.contacts_visible"]["verdict"], au.WARN)
+
+    def test_url_shape_checks_describe_what_they_found_not_what_they_look_for(self):
+        row = self.rows(self.DOCS, "https://docs.example.org/3/library/json.html")
+        case = row["access.url_case"]
+        self.assertEqual(case["verdict"], au.OK)
+        self.assertNotIn("есть заглавные", case["observation"],
+                         "в «норме» нельзя печатать текст находки")
+        session = row["access.url_session_params"]
+        self.assertEqual(session["verdict"], au.OK)
+        self.assertNotIn("параметр сессии", session["observation"].lower()[:20])
+
+    def test_percent_encoded_path_is_a_note_not_a_warning(self):
+        row = self.rows(self.SHOP, "https://shop.example/%D0%BA%D0%BE%D1%84%D0%B5/")
+        self.assertEqual(row["access.url_encoding"]["verdict"], au.INFO)
+
+    def test_group_title_in_fix_first_matches_the_section_heading(self):
+        page = audit_file(BASIC)
+        reg = au.load_registry()
+        rep = au.build_report([page], registry=reg, keys=[], options={"delay": 2.0},
+                              requests_made=0)
+        sections = {g["group"]: g["title"] for g in rep["pages"][0]["groups"]}
+        rows = {r["id"]: r for r in page["rows"]}
+        for item in rep["pages"][0]["fix_first"]:
+            slug = rows[item["id"]]["group"]
+            self.assertEqual(item["group_title"], sections[slug],
+                             f'{item["id"]}: в «чинить первым» и в разделе разные названия группы')
+
+    def test_repeated_sentence_openings_are_not_called_chat_artifacts(self):
+        """Английская документация: 19 абзацев с «this…» — это ритм, а не штампы."""
+        text = " ".join(
+            "<p>This object is a decoder. This decoder reads a document. "
+            "This document is parsed strictly.</p>" for _ in range(6))
+        html = ('<!doctype html><html lang="en"><head><title>Reference for the decoder</title>'
+                '</head><body><main><h1>Decoder reference</h1>' + text + "</main></body></html>")
+        row = self.rows(html, "https://docs.example.org/3/library/json.html")["content.officialese"]
+        self.assertNotIn("чат-бота", row["observation"] or "",
+                         "повтор зачинов не выдаётся за след переписки с моделью")
+
+    def test_summary_cards_agree_with_the_number(self):
+        page = audit_file(BASIC)
+        rep = au.build_report([page], registry=au.load_registry(), keys=[],
+                              options={"delay": 2.0}, requests_made=0)
+        html = au.render_html(rep)
+        t = rep["totals"]
+        for n, forms in ((t[au.BAD], ("проблема", "проблемы", "проблем")),
+                         (t[au.WARN], ("предупреждение", "предупреждения", "предупреждений"))):
+            self.assertIn(f"<b>{n}</b><span>{au._plural(n, *forms)}</span>", html)
+        self.assertEqual(au._plural(1, *("проблема", "проблемы", "проблем")), "проблема")
+        self.assertEqual(au._plural(2, *("проблема", "проблемы", "проблем")), "проблемы")
+        self.assertEqual(au._plural(11, *("проблема", "проблемы", "проблем")), "проблем")

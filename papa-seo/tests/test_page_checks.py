@@ -475,10 +475,19 @@ class DocumentAndHeaderTest(unittest.TestCase):
 
     def test_redirects_before_page_and_tls(self):
         rows = self.rows(fetch={"elapsed_ms": 50, "final_url": "https://a.test/x",
-                                "chain": [{"status": 301}, {"status": 302}]})
+                                "chain": [{"status": 301}, {"status": 302}, {"status": 200}]})
         self.assertEqual(rows["speed.redirect_before_page"]["status"], "warn")
         self.assertEqual(rows["speed.redirect_before_page"]["value"], [301, 302])
         self.assertEqual(rows["security.tls_chain_ok"]["status"], "pass")
+
+    def test_a_page_answered_without_redirects_is_not_a_finding(self):
+        """В chain всегда есть итоговый ответ: раньше из-за него предупреждение было у всех."""
+        rows = self.rows(fetch={"elapsed_ms": 50, "final_url": "https://a.test/x",
+                                "chain": [{"status": 200, "url": "https://a.test/x"}]})
+        self.assertEqual(rows["speed.redirect_before_page"]["status"], "pass")
+        self.assertEqual(rows["speed.redirect_before_page"]["value"], 0)
+        self.assertIn("Редиректов до страницы нет",
+                      rows["speed.redirect_before_page"]["observation"])
 
     def test_without_fetch_block_those_are_skipped(self):
         rows = self.rows()

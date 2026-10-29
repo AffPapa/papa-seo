@@ -785,12 +785,33 @@ def check_entity(rows: Rows, ent: dict, ids_seen: Counter, refs: list, canonical
             ids_seen[oid.strip()] += 1
 
 
+# Типографика: в разметке и в видимом тексте одно и то же слово часто набрано разными
+# символами — &nbsp; против пробела, неразрывный дефис против обычного, «ёлочки» против
+# кавычек. Без приведения к одному виду сравнение даёт ложные «значения не видны».
+_DROP_CHARS = str.maketrans(dict.fromkeys("­​‌‍⁠﻿", ""))
+_FOLD_CHARS = str.maketrans({
+    " ": " ", " ": " ", " ": " ", " ": " ", " ": " ", " ": " ",
+    "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "―": "-",
+    "−": "-", "«": '"', "»": '"', "“": '"', "”": '"', "„": '"',
+    "‘": "'", "’": "'", "′": "'", "″": '"', "…": "...",
+})
+
+
+def _plain(text) -> str:
+    """Один вид для сравнения: без невидимых символов, с обычными дефисами и кавычками."""
+    folded = str(text).translate(_DROP_CHARS).translate(_FOLD_CHARS)
+    return re.sub(r"\s+", " ", folded).strip().lower()
+
+
 def _visible_values(rows: Rows, entities: list, visible: str):
     """facts-2026 §6 / sd-policies: размечать только видимое. Эвристика по числам и названиям."""
-    norm = re.sub(r"\s+", " ", visible).lower()
+    norm = _plain(visible)
     if not norm:
         rows.add("markup.visible_values", "skip", "Видимого текста нет (на входе JSON, не страница)")
         return
+    # «4 578 ₽» на странице и 4578 в разметке — одно и то же число. Для поиска чисел
+    # держим второй текст, в котором разделители разрядов между цифрами убраны.
+    norm_digits = re.sub(r"(?<=\d)[ ']+(?=\d)", "", norm)
     missing = []
     for ent in entities:
         node, types = ent["node"], ent["types"]
@@ -803,14 +824,14 @@ def _visible_values(rows: Rows, entities: list, visible: str):
             if v == int(v):
                 shapes.add(str(int(v)))
             shapes |= {s.replace(".", ",") for s in shapes if s}
-            if not any(s and s in norm for s in shapes):
+            if not any(s and (s in norm or s in norm_digits) for s in shapes):
                 missing.append({"entity": label, "prop": key, "value": v})
         for key in ("name", "headline"):
             val = node.get(key)
             if isinstance(val, str) and len(val.strip()) >= 8 and types and types[0] in (
                     "Product", "Event", "Recipe", "JobPosting", "SoftwareApplication", "Article",
                     "NewsArticle", "BlogPosting"):
-                if val.strip().lower() not in norm:
+                if _plain(val) not in norm:
                     missing.append({"entity": label, "prop": key, "value": val.strip()[:60]})
     rows.add("markup.visible_values", "fail" if missing else "pass",
              f"Значений разметки не нашлось в видимом тексте: {len(missing)}" if missing
