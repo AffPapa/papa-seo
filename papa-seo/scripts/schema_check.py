@@ -9,9 +9,12 @@
 Deterministic only: JSON-LD is parsed (never executed), values are compared with the shapes the
 sources below demand. Nothing is fetched beyond the one page.
 
-Sources. Required properties are taken from `references/facts-2026.md` §6 (Google documentation,
-dated) — and only from there. Where no search engine or standard demands a property, the check says
-`ориентир редактора` and the output repeats it: a missing recommended property is not a defect.
+Sources. The required/recommended split for each of the 22 types was read off that type's page on
+developers.google.com on 30.10.2026; the summary with dates is in `references/facts-2026.md` §6.
+Where the documentation says «There are no required properties» — Article, Organization — the check
+calls the properties recommended, stands at severity low, and says so in the note. A type whose
+documentation Google has withdrawn (FAQPage, sitelinks searchbox) carries no requirements at all.
+Calling a recommendation a requirement is the error this script is built not to make.
 Type and property names come from schema.org (names only — the vocabulary descriptions are
 CC BY-SA 3.0 and are not copied here).
 
@@ -34,7 +37,7 @@ import page_facts  # noqa: E402
 MAX_ENTITIES = 500
 MAX_DEPTH = 40
 MAX_ROWS = 2000
-REGISTRY_VERSION = "0.2.0"
+REGISTRY_VERSION = "0.2.2"
 
 S_SDP = ("Google «Structured data general guidelines» (developers.google.com/search/docs/appearance/"
          "structured-data/sd-policies); facts-2026 §6")
@@ -118,121 +121,156 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
                                         S_MERCHANT, "contract"),
 }
 
-# ------------------------------------------------------------- обязательные поля по типам (markup.req_*)
-# Состав списков — из registry.json v0.2.1 (рецепты агента A по документации Google) и facts-2026 §6.
-# Запись в required: "prop" | ("any", [props]) | ("deep", prop, subprop) | ("special", key)
+# ------------------------------------------------- поля типов (markup.req_*): что требует документация
+# Состав списков сверен со страницами developers.google.com 30.10.2026, сводка — в facts-2026 §6.
+# `doc_required: False` — у типа в документации Google раздела Required НЕТ (дословно: «There are no
+# required properties»). Для таких типов мы не говорим «обязательные» ни в выводе, ни в реестре:
+# находка звучит «Google рекомендует, на странице нет» и стоит low. Это правило пакета, а не стиль:
+# совет, выданный за требование, — та самая неправда, которую мы ловим у чужих скилов.
+# Запись в required/recommended: "prop" | ("any", [props]) | ("deep", prop, subprop) | ("special", key)
 REQ_RULES: list[dict] = [
     {"id": "markup.req_article", "title": "Article / NewsArticle / BlogPosting",
      "types": {"Article", "NewsArticle", "BlogPosting", "TechArticle", "Report", "ScholarlyArticle"},
-     "required": ["headline", "image", "datePublished", ("deep", "author", "name")],
-     "recommended": ["dateModified", "publisher", "mainEntityOfPage"],
+     "doc_required": False, "required": [],
+     "recommended": ["headline", "image", "datePublished", "dateModified",
+                     ("deep", "author", "name"), ("deep", "author", "url")],
      "source": _gsd("Article", "article")},
-    {"id": "markup.req_breadcrumb", "title": "BreadcrumbList", "types": {"BreadcrumbList"},
-     "required": [("special", "breadcrumb")], "recommended": [],
-     "source": _gsd("BreadcrumbList", "breadcrumb")},
-    {"id": "markup.req_product", "title": "Product (product snippet)", "types": {"Product"},
-     "required": ["name", ("any", ["review", "aggregateRating", "offers"])],
-     "recommended": ["image", "description", "sku", "brand", "gtin"],
-     "source": _gsd("Product", "product")},
-    {"id": "markup.req_offer", "title": "Offer / merchant listing", "types": {"Product"},
-     "when": "has_offers",
-     "required": ["name", "image", "offers", ("special", "offer_price")],
-     "recommended": ["availability", "shippingDetails", "hasMerchantReturnPolicy", "priceValidUntil"],
-     "recommended_in": "offers", "source": S_MERCHANT},
     {"id": "markup.req_organization", "title": "Organization",
      "types": {"Organization", "NewsMediaOrganization", "OnlineBusiness", "Corporation"},
-     "required": ["name", "url"],
-     "recommended": ["logo", "sameAs", "address", "contactPoint", "@id"],
+     "doc_required": False, "required": [],
+     "recommended": ["name", "url", "logo", "sameAs", "address", "contactPoint", "description",
+                     "legalName", "telephone"],
      "source": _gsd("Organization", "organization")},
+    {"id": "markup.req_breadcrumb", "title": "BreadcrumbList", "types": {"BreadcrumbList"},
+     "doc_required": True, "required": [("special", "breadcrumb")], "recommended": [],
+     "note": "`name` у ListItem документация не требует в отдельных случаях — смотрите страницу типа",
+     "source": _gsd("BreadcrumbList", "breadcrumb")},
+    {"id": "markup.req_product", "title": "Product (product snippet)", "types": {"Product"},
+     "doc_required": True,
+     "required": ["name", ("any", ["review", "aggregateRating", "offers"])],
+     "recommended": ["image", "description", "sku", "brand", "gtin", "category"],
+     "source": _gsd("Product", "product-snippet")},
+    {"id": "markup.req_offer", "title": "Offer / merchant listing", "types": {"Product"},
+     "when": "has_offers", "doc_required": True,
+     "required": ["name", "image", "offers", ("special", "offer_price")],
+     "recommended": ["availability", "itemCondition", "shippingDetails", "hasMerchantReturnPolicy",
+                     "priceValidUntil", "url"],
+     "recommended_in": "offers", "source": S_MERCHANT},
     {"id": "markup.req_person", "title": "Person / ProfilePage", "types": {"Person", "ProfilePage"},
-     "required": [("special", "person")],
-     "recommended": ["image", "sameAs", "jobTitle", "worksFor", "description"],
+     "doc_required": True, "required": [("special", "person")],
+     "recommended": ["image", "sameAs", "alternateName", "description", "identifier"],
      "source": _gsd("Profile page", "profile-page")},
     {"id": "markup.req_event", "title": "Event",
      "types": {"Event", "BusinessEvent", "EducationEvent", "Festival", "SportsEvent",
                "MusicEvent", "TheaterEvent", "ExhibitionEvent", "SocialEvent"},
+     "doc_required": True,
      "required": ["name", "startDate", ("special", "event_location")],
-     "recommended": ["endDate", "eventStatus", "eventAttendanceMode", "offers", "performer", "image"],
+     "recommended": ["description", "endDate", "eventStatus", "image", "offers", "organizer",
+                     "performer"],
      "source": _gsd("Event", "event")},
     {"id": "markup.req_jobposting", "title": "JobPosting", "types": {"JobPosting"},
+     "doc_required": True,
      "required": ["title", "description", "datePosted", "hiringOrganization",
                   ("special", "job_location")],
-     "recommended": ["validThrough", "baseSalary", "employmentType", "identifier"],
+     "recommended": ["validThrough", "baseSalary", "employmentType", "identifier",
+                     "jobLocationType", "directApply"],
      "source": _gsd("JobPosting", "job-posting")},
     {"id": "markup.req_localbusiness", "title": "LocalBusiness", "types": {"LocalBusiness"},
      # подтипы LocalBusiness в schema.org исчисляются сотнями: берём распространённые окончания
      "types_suffix": ("Business", "Store", "Shop", "Restaurant", "Hotel", "Clinic", "Agency",
                       "Market", "Bar", "Cafe", "Salon", "Gym", "Pharmacy", "Dealer", "Service"),
-     "required": ["name", "address"],
-     "recommended": ["telephone", "openingHoursSpecification", "geo", "url", "priceRange"],
+     "doc_required": True, "required": ["name", "address"],
+     "recommended": ["telephone", "openingHoursSpecification", "geo", "url", "priceRange",
+                     "aggregateRating", "review", "department"],
      "source": _gsd("Local business", "local-business")},
     {"id": "markup.req_recipe", "title": "Recipe", "types": {"Recipe"},
-     "required": ["name", "image"],
-     "recommended": ["recipeIngredient", "recipeInstructions", "cookTime", "prepTime", "totalTime",
-                     "recipeYield", "nutrition", "aggregateRating", "video"],
+     "doc_required": True, "required": ["name", "image"],
+     "recommended": ["author", "datePublished", "description", "keywords", "recipeIngredient",
+                     "recipeInstructions", "prepTime", "cookTime", "totalTime", "recipeYield",
+                     "recipeCategory", "recipeCuisine", "nutrition", "aggregateRating", "video"],
      "source": _gsd("Recipe", "recipe")},
     {"id": "markup.req_videoobject", "title": "VideoObject", "types": {"VideoObject"},
-     "required": ["name", "thumbnailUrl", "uploadDate"],
-     "recommended": ["description", "duration", "contentUrl", "embedUrl", "creator"],
+     "doc_required": True, "required": ["name", "thumbnailUrl", "uploadDate"],
+     "recommended": ["description", "duration", "contentUrl", "embedUrl", "creator", "expires",
+                     "interactionStatistic", "regionsAllowed"],
      "source": _gsd("Video", "video")},
-    {"id": "markup.req_website", "title": "WebSite + SearchAction", "types": {"WebSite"},
-     "required": [("special", "website_search")],
-     "recommended": ["name", "alternateName", "url"],
-     "source": _gsd("Sitelinks searchbox", "sitelinks-searchbox")},
+    {"id": "markup.req_website", "title": "WebSite + SearchAction (функция выведена)",
+     "types": {"WebSite"}, "when": "has_searchaction", "doc_required": False,
+     "required": [], "recommended": [], "retired": True,
+     "note": "Документация Sitelinks search box снята 29.11.2024: «The sitelinks search box feature "
+             "is no longer available in Google Search results». Требований к SearchAction у Google "
+             "больше нет, разметка не вредит, но карточки в выдаче не даёт (facts-2026 §6)",
+     "source": "Google Search updates, 29.11.2024 (developers.google.com/search/updates); "
+               "facts-2026 §6"},
     {"id": "markup.req_itemlist", "title": "ItemList / Carousel", "types": {"ItemList"},
-     "skip_types": {"BreadcrumbList"},
+     "skip_types": {"BreadcrumbList"}, "doc_required": True,
      "required": [("special", "itemlist")], "recommended": ["name", "numberOfItems"],
+     "note": "Документация требует либо `position` + `url` (сводная страница), либо "
+             "`item` с `item.name` и `item.url` (всё на одной странице)",
      "source": _gsd("Carousel", "carousel")},
-    {"id": "markup.req_qapage", "title": "QAPage", "types": {"QAPage"},
-     "required": [("special", "question_page")],
-     "recommended": ["answerCount", "upvoteCount", "author", "dateCreated"],
-     "recommended_in": "mainEntity",
-     "source": _gsd("Q&A", "qapage")},
+    {"id": "markup.req_qapage", "title": "QAPage", "types": {"QAPage"}, "doc_required": True,
+     "required": [("special", "question_page_qa")],
+     "recommended": ["author", "upvoteCount", "datePublished", "dateModified", "image", "text"],
+     "recommended_in": "mainEntity", "source": _gsd("Q&A", "qapage")},
     {"id": "markup.req_review", "title": "Review / AggregateRating",
-     "types": {"Review", "AggregateRating"},
+     "types": {"Review", "AggregateRating"}, "doc_required": True,
      "required": [("special", "review")],
      "recommended": ["bestRating", "worstRating", "datePublished"],
      # datePublished — свойство отзыва, у агрегата его не ждут
      "recommended_skip": {"AggregateRating": {"datePublished"}}, "source": S_REVIEWSNIP},
     {"id": "markup.req_softwareapp", "title": "SoftwareApplication",
      "types": {"SoftwareApplication", "MobileApplication", "WebApplication", "VideoGame"},
-     "required": ["name", ("any", ["offers", "price"]), ("any", ["aggregateRating", "review"]),
-                  ("any", ["applicationCategory", "operatingSystem"])],
-     "recommended": ["screenshot", "softwareVersion"],
+     "doc_required": True,
+     "required": ["name", ("special", "app_price"), ("any", ["aggregateRating", "review"])],
+     "recommended": ["applicationCategory", "operatingSystem", "screenshot", "softwareVersion"],
      "source": _gsd("Software app", "software-app")},
-    {"id": "markup.req_faqpage", "title": "FAQPage", "types": {"FAQPage"},
-     "required": [("special", "question_page")], "recommended": [],
-     "note": "Rich result закрыт с 07.05.2026, у Яндекса не поддержан — выдачу не обещать "
-             "(facts-2026 §6)",
-     "source": _gsd("FAQPage", "faqpage")},
+    {"id": "markup.req_faqpage", "title": "FAQPage", "types": {"FAQPage"}, "doc_required": False,
+     "required": [], "recommended": [("special", "question_page_faq")],
+     "note": "Документация FAQPage снята 15.06.2026, rich result не показывается с 07.05.2026, у "
+             "Яндекса тип не поддержан (facts-2026 §6). Требований Google к этому типу сейчас нет; "
+             "строение проверяем по словарю schema.org — это ориентир, а не требование",
+     "source": "schema.org/FAQPage; facts-2026 §6 (документация Google снята 15.06.2026)"},
     {"id": "markup.req_discussion", "title": "DiscussionForumPosting",
-     "types": {"DiscussionForumPosting", "SocialMediaPosting"},
-     "required": ["author", "datePublished", ("any", ["text", "image", "video"])],
-     "recommended": ["headline", "url", "interactionStatistic"],
+     "types": {"DiscussionForumPosting", "SocialMediaPosting"}, "doc_required": True,
+     "required": [("deep", "author", "name"), "datePublished",
+                  ("any", ["text", "image", "video"])],
+     "recommended": ["headline", "url", "interactionStatistic", "comment", "commentCount",
+                     "dateModified", "isPartOf"],
      "source": _gsd("Discussion forum", "discussion-forum")},
-    {"id": "markup.req_dataset", "title": "Dataset", "types": {"Dataset"},
-     "required": ["name", "description"], "recommended": [],
+    {"id": "markup.req_dataset", "title": "Dataset", "types": {"Dataset"}, "doc_required": True,
+     "required": ["name", "description"],
+     "recommended": ["creator", "license", "identifier", "keywords", "url", "sameAs",
+                     "isAccessibleForFree", "variableMeasured", "temporalCoverage"],
      "note": "Жив только для Dataset Search, не для веб-выдачи (facts-2026 §6)",
      "source": _gsd("Dataset", "dataset")},
     {"id": "markup.req_imagelicense", "title": "ImageObject: лицензия", "types": {"ImageObject"},
-     "when": "claims_license",
-     "required": ["contentUrl", "license", "acquireLicensePage"],
-     "recommended": ["creator", "creditText", "copyrightNotice"],
+     "when": "claims_license", "doc_required": True,
+     "required": ["contentUrl",
+                  ("any", ["license", "creator", "creditText", "copyrightNotice"])],
+     "recommended": ["acquireLicensePage", "license", "creator", "creditText", "copyrightNotice"],
      "source": _gsd("Image metadata", "image-license-metadata")},
     {"id": "markup.req_speakable", "title": "speakable", "types": set(), "when": "has_speakable",
-     "required": [("special", "speakable")], "recommended": [],
-     "note": "Только для новостей, набор поддерживаемых языков ограничен",
+     "doc_required": True, "required": [("special", "speakable")], "recommended": [],
+     "note": "Функция в бете, только новости и ограниченный набор языков",
      "source": _gsd("Speakable", "speakable")},
     {"id": "markup.req_paywall", "title": "Платный контент (paywalledContent)", "types": set(),
-     "when": "has_paywall", "required": [("special", "paywall")], "recommended": [],
-     "note": "Иначе закрытый текст в разметке читается как клоакинг",
+     "when": "has_paywall", "doc_required": True, "required": ["isAccessibleForFree"],
+     "recommended": [("special", "paywall_part")],
+     "note": "Без `hasPart` с `cssSelector` закрытой части закрытый текст в разметке читается "
+             "как клоакинг",
      "source": _gsd("Paywalled content", "paywalled-content")},
 ]
 for _r in REQ_RULES:
-    CHECK_META[_r["id"]] = ("markup", "Обязательные поля: " + _r["title"],
-                            "при наличии типа на странице проверить обязательные свойства; "
-                            "рекомендуемые — отдельным списком severity low",
-                            "medium", _r["source"], "contract")
+    _hard = _r.get("doc_required", True)
+    CHECK_META[_r["id"]] = (
+        "markup", ("Обязательные и рекомендуемые поля: " if _hard else "Рекомендуемые поля: ")
+        + _r["title"],
+        ("при наличии типа на странице проверить обязательные свойства из документации Google; "
+         "рекомендуемые — отдельным списком severity low"
+         if _hard else
+         "раздела Required у этого типа в документации Google нет: проверяются только "
+         "рекомендуемые свойства, их отсутствие — не нарушение требования"),
+        "medium" if _hard else "low", _r["source"], "contract")
 
 # references/yandex.md §4 — что Яндекс берёт из разметки. FAQPage там нет.
 YANDEX_SUPPORTED = {
@@ -364,29 +402,32 @@ def _types_of(node: dict) -> list[str]:
     return []
 
 
-def _walk(node, path: str, out: list, depth: int = 0, max_depth: list | None = None):
-    """Every dict that looks like a schema.org node, with its path. Depth is recorded, not followed
-    past MAX_DEPTH."""
+def _walk(node, path: str, out: list, depth: int = 0, max_depth: list | None = None,
+          via: str | None = None):
+    """Every dict that looks like a schema.org node, with its path and `via` — the property through
+    which it was reached. `via` отличает самостоятельную сущность от значения роли (`publisher`
+    внутри Article). Depth is recorded, not followed past MAX_DEPTH."""
     if max_depth is not None:
         max_depth[0] = max(max_depth[0], depth)
     if depth > MAX_DEPTH or len(out) >= MAX_ENTITIES:
         return
     if isinstance(node, dict):
         if node.get("@graph") is not None and not _types_of(node):
-            _walk(node["@graph"], path + "/@graph", out, depth + 1, max_depth)
+            _walk(node["@graph"], path + "/@graph", out, depth + 1, max_depth, via)
             for k, v in node.items():
                 if k != "@graph" and isinstance(v, (dict, list)):
-                    _walk(v, f"{path}/{k}", out, depth + 1, max_depth)
+                    _walk(v, f"{path}/{k}", out, depth + 1, max_depth, k)
             return
-        out.append({"path": path, "node": node, "types": _types_of(node), "depth": depth})
+        out.append({"path": path, "node": node, "types": _types_of(node), "depth": depth,
+                    "via": via})
         for k, v in node.items():
             if isinstance(v, (dict, list)) and not k.startswith("@"):
-                _walk(v, f"{path}/{k}", out, depth + 1, max_depth)
+                _walk(v, f"{path}/{k}", out, depth + 1, max_depth, k)
             elif k == "@graph" and isinstance(v, (dict, list)):
-                _walk(v, f"{path}/@graph", out, depth + 1, max_depth)
+                _walk(v, f"{path}/@graph", out, depth + 1, max_depth, via)
     elif isinstance(node, list):
         for i, v in enumerate(node):
-            _walk(v, f"{path}[{i}]", out, depth + 1, max_depth)
+            _walk(v, f"{path}[{i}]", out, depth + 1, max_depth, via)
 
 
 def _as_list(value):
@@ -431,7 +472,23 @@ def _number(value):
             return None
     return None
 
-# -------------------------------------------------------------------- проверка обязательных полей
+# --------------------------------------------------------- проверка полей типов (markup.req_*)
+
+# ------------------------------------------------- свойства, которыми сущность названа в чужой роли
+# Узел под этими свойствами — не сущность сайта, а значение роли: `publisher` внутри Article у
+# Google в примерах так и выглядит — {Organization, name, logo}. Судить такой обрубок по правилам
+# самостоятельной Organization значит выдавать три находки из одной причины (QA 30.10.2026, P1).
+ROLE_PROPS = {
+    "author", "publisher", "provider", "creator", "hiringOrganization", "seller", "brand",
+    "organizer", "performer", "funder", "copyrightHolder", "sourceOrganization",
+    "parentOrganization", "subOrganization", "memberOf", "affiliation", "worksFor", "founder",
+    "employee", "member", "sponsor", "translator", "editor", "contributor", "manufacturer",
+    "vendor", "broker", "customer", "recipient", "accountablePerson", "director", "actor",
+    "musicBy", "producer", "character", "itemReviewed", "about", "mentions", "citation",
+}
+# вложенные Review и AggregateRating: документация Google не требует у них itemReviewed
+NESTED_RATING_VIA = {"review", "aggregateRating", "reviews"}
+
 
 def _present(node: dict, prop: str) -> bool:
     if prop == "@id":
@@ -457,7 +514,7 @@ def _deep_nodes(value) -> list:
     return [v for v in _as_list(value) if isinstance(v, dict)]
 
 
-def _special(key: str, node: dict) -> list[str]:
+def _special(key: str, node: dict, via: str | None = None) -> list[str]:
     """Returns the list of what is missing, in words. Empty list = the rule is satisfied."""
     if key == "breadcrumb":
         items = _deep_nodes(node.get("itemListElement"))
@@ -484,13 +541,16 @@ def _special(key: str, node: dict) -> list[str]:
             return ["itemListElement с ListItem"]
         miss = []
         no_pos = sum(1 for x in items if _number(x.get("position")) is None)
-        no_url = sum(1 for x in items if not (_present(x, "url") or _present(x, "item")))
+        no_url = sum(1 for x in items
+                     if not (_present(x, "url")
+                             or (_present(x, "item") and _sub_present(x.get("item"), "name")
+                                 and _sub_present(x.get("item"), "url"))))
         if no_pos:
             miss.append(f"position у {no_pos} пунктов")
         if no_url:
-            miss.append(f"url или вложенный объект у {no_url} пунктов")
+            miss.append(f"url или item с item.name и item.url у {no_url} пунктов")
         return miss
-    if key == "question_page":
+    if key in ("question_page_qa", "question_page_faq"):
         qs = _deep_nodes(node.get("mainEntity"))
         if not qs:
             return ["mainEntity с Question"]
@@ -505,10 +565,15 @@ def _special(key: str, node: dict) -> list[str]:
             miss.append(f"name у {no_name} вопросов")
         if no_ans:
             miss.append(f"acceptedAnswer/suggestedAnswer с text у {no_ans} вопросов")
+        if key == "question_page_qa":
+            no_count = sum(1 for q in qs if _number(q.get("answerCount")) is None)
+            if no_count:
+                miss.append(f"answerCount у {no_count} вопросов")
         return miss
     if key == "review":
         types = _types_of(node)
         miss = []
+        nested = (via or "") in NESTED_RATING_VIA
         if "Review" in types:
             if not _sub_present(node.get("reviewRating"), "ratingValue"):
                 miss.append("reviewRating с ratingValue")
@@ -519,6 +584,8 @@ def _special(key: str, node: dict) -> list[str]:
                 miss.append("ratingValue")
             if not (_present(node, "ratingCount") or _present(node, "reviewCount")):
                 miss.append("ratingCount или reviewCount")
+        if not nested and not _present(node, "itemReviewed"):
+            miss.append("itemReviewed (у невложенного отзыва)")
         return miss
     if key == "event_location":
         locs = _deep_nodes(node.get("location"))
@@ -530,27 +597,15 @@ def _special(key: str, node: dict) -> list[str]:
                 return []
             if _present(loc, "address"):
                 return []
-        return ["location: Place с address или VirtualLocation с url"]
+        return ["location с address (у онлайн-события — VirtualLocation с url)"]
     if key == "job_location":
-        if _present(node, "jobLocation"):
+        if _present(node, "jobLocation") or _present(node, "applicantLocationRequirements"):
             return []
         jlt = node.get("jobLocationType")
         if isinstance(jlt, str) and jlt.strip().upper() == "TELECOMMUTE":
             return []
-        return ["jobLocation или jobLocationType=TELECOMMUTE"]
-    if key == "website_search":
-        actions = _deep_nodes(node.get("potentialAction"))
-        if not actions:
-            return ["potentialAction с SearchAction"]
-        for a in actions:
-            if "SearchAction" not in _types_of(a):
-                continue
-            targets = []
-            _flat_text(a.get("target"), targets)
-            qi = a.get("query-input") or a.get("queryInput")
-            if any("{search_term_string}" in t for t in targets) and qi:
-                return []
-        return ["SearchAction: target с {search_term_string} и query-input"]
+        return ["jobLocation (не нужен при applicantLocationRequirements; "
+                "у полностью удалённой работы — jobLocationType=TELECOMMUTE)"]
     if key == "person":
         types = _types_of(node)
         if "ProfilePage" in types:
@@ -569,25 +624,33 @@ def _special(key: str, node: dict) -> list[str]:
         for off in offers:
             if "AggregateOffer" in _types_of(off):
                 continue
+            spec = _deep_nodes(off.get("priceSpecification"))
             price = _number(off.get("price"))
             if price is None:
-                miss.append("price числом в Offer")
+                price = next((_number(x.get("price")) for x in spec
+                              if _number(x.get("price")) is not None), None)
+            if price is None:
+                miss.append("price числом в Offer или в priceSpecification")
             elif price <= 0:
                 miss.append("price больше нуля в Offer")
-            cur = off.get("priceCurrency")
+            cur = off.get("priceCurrency") or next(
+                (x.get("priceCurrency") for x in spec if x.get("priceCurrency")), None)
             if not (isinstance(cur, str) and _CURRENCY.match(cur.strip())):
-                miss.append("priceCurrency по ISO 4217 в Offer")
+                miss.append("priceCurrency по ISO 4217 в Offer или в priceSpecification")
         return sorted(set(miss))
+    if key == "app_price":
+        for off in _deep_nodes(node.get("offers")):
+            if _number(off.get("price")) is not None:
+                return []
+        if _number(node.get("price")) is not None:
+            return []
+        return ["offers.price (для бесплатного приложения — 0)"]
     if key == "speakable":
         for sp in _deep_nodes(node.get("speakable")):
             if _present(sp, "cssSelector") or _present(sp, "xPath"):
                 return []
         return ["speakable: cssSelector или xPath"]
-    if key == "paywall":
-        free = node.get("isAccessibleForFree")
-        closed = free is False or (isinstance(free, str) and free.strip().lower() in ("false", "no"))
-        if not closed:
-            return ["isAccessibleForFree=False"]
+    if key == "paywall_part":
         for part in _deep_nodes(node.get("hasPart")):
             if _present(part, "cssSelector"):
                 return []
@@ -595,7 +658,10 @@ def _special(key: str, node: dict) -> list[str]:
     return []
 
 
-def _rule_applies(rule: dict, node: dict, types: list) -> bool:
+def _rule_applies(rule: dict, node: dict, types: list, via: str | None) -> bool:
+    if via in ROLE_PROPS and not (rule["id"] == "markup.req_review"
+                                  and {"Review", "AggregateRating"} & set(types)):
+        return False          # узел в чужой роли — не самостоятельная сущность (P1)
     tset = set(types)
     if rule.get("skip_types") and tset & rule["skip_types"]:
         return False
@@ -605,8 +671,12 @@ def _rule_applies(rule: dict, node: dict, types: list) -> bool:
     when = rule.get("when")
     if when == "has_offers":
         return hit and _present(node, "offers")
+    if when == "has_searchaction":
+        return hit and any("SearchAction" in _types_of(a)
+                           for a in _deep_nodes(node.get("potentialAction")))
     if when == "claims_license":
-        return hit and any(_present(node, p) for p in ("license", "acquireLicensePage", "creditText"))
+        return hit and any(_present(node, p) for p in ("license", "acquireLicensePage", "creditText",
+                                                       "copyrightNotice"))
     if when == "has_speakable":
         return _present(node, "speakable")
     if when == "has_paywall":
@@ -614,25 +684,31 @@ def _rule_applies(rule: dict, node: dict, types: list) -> bool:
     return hit
 
 
-def _required_checks(rows: Rows, node: dict, types: list, label: str):
+def _missing(entries, node: dict, via: str | None) -> list[str]:
+    out: list[str] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            if not _present(node, entry):
+                out.append(entry)
+        elif entry[0] == "any":
+            if not any(_present(node, p) for p in entry[1]):
+                out.append("одно из: " + ", ".join(entry[1]))
+        elif entry[0] == "deep":
+            if not _present(node, entry[1]):
+                out.append(entry[1])
+            elif not _sub_present(node.get(entry[1]), entry[2]):
+                out.append(f"{entry[1]}.{entry[2]}")
+        elif entry[0] == "special":
+            out.extend(_special(entry[1], node, via))
+    return out
+
+
+def _required_checks(rows: Rows, node: dict, types: list, label: str, via: str | None = None):
     for rule in REQ_RULES:
-        if not _rule_applies(rule, node, types):
+        if not _rule_applies(rule, node, types, via):
             continue
-        missing: list[str] = []
-        for entry in rule["required"]:
-            if isinstance(entry, str):
-                if not _present(node, entry):
-                    missing.append(entry)
-            elif entry[0] == "any":
-                if not any(_present(node, p) for p in entry[1]):
-                    missing.append("одно из: " + ", ".join(entry[1]))
-            elif entry[0] == "deep":
-                if not _present(node, entry[1]):
-                    missing.append(entry[1])
-                elif not _sub_present(node.get(entry[1]), entry[2]):
-                    missing.append(f"{entry[1]}.{entry[2]}")
-            elif entry[0] == "special":
-                missing.extend(_special(entry[1], node))
+        hard = rule.get("doc_required", True)
+        missing = _missing(rule["required"], node, via) if hard else []
         scope = node
         if rule.get("recommended_in"):
             inner = _deep_nodes(node.get(rule["recommended_in"]))
@@ -641,25 +717,48 @@ def _required_checks(rows: Rows, node: dict, types: list, label: str):
         for t, names in (rule.get("recommended_skip") or {}).items():
             if t in types:
                 skip |= set(names)
-        soft = [p for p in rule.get("recommended", []) if p not in skip and not _present(scope, p)]
+        soft = [p for p in _missing(rule.get("recommended", []), scope, via) if p not in skip]
+        note = rule.get("note")
+        if rule.get("retired"):
+            rows.add(rule["id"], "info", f"{rule['title']}: разметка есть, требований к ней у Google "
+                                         f"нет", entity=label, note=note)
+            continue
         if missing:
-            rows.add(rule["id"], "fail", f"{rule['title']}: нет обязательных — " + "; ".join(missing),
-                     entity=label, value={"missing_required": missing, "missing_recommended": soft},
-                     note=rule.get("note"))
+            rows.add(rule["id"], "fail",
+                     f"{rule['title']}: документация Google требует, на странице нет — "
+                     + "; ".join(missing), entity=label,
+                     value={"missing_required": missing, "missing_recommended": soft}, note=note)
+        elif soft and not hard:
+            rows.add(rule["id"], "warn",
+                     f"{rule['title']}: Google перечисляет как рекомендуемые, на странице нет — "
+                     + ", ".join(soft), entity=label, severity="low",
+                     value={"missing_recommended": soft},
+                     note=(note + ". " if note else "")
+                     + "Раздела Required у этого типа в документации Google нет: отсутствие "
+                       "свойства не нарушает требования")
         elif soft:
             rows.add(rule["id"], "warn",
-                     f"{rule['title']}: обязательные на месте, нет рекомендуемых — " + ", ".join(soft),
-                     entity=label, severity="low", value={"missing_recommended": soft},
-                     note=rule.get("note") or "Рекомендуемые свойства — не требование: без них "
-                                              "сущность беднее, но ошибки нет")
+                     f"{rule['title']}: документация Google требует всё, что нужно; из "
+                     f"рекомендуемых нет — " + ", ".join(soft), entity=label, severity="low",
+                     value={"missing_recommended": soft},
+                     note=(note + ". " if note else "")
+                     + "Рекомендуемые свойства — не требование: без них сущность беднее, "
+                       "но ошибки нет")
+        elif hard:
+            rows.add(rule["id"], "pass",
+                     f"{rule['title']}: требуемые и рекомендуемые свойства на месте", entity=label,
+                     note=note)
         else:
-            rows.add(rule["id"], "pass", f"{rule['title']}: обязательные и рекомендуемые на месте",
-                     entity=label, note=rule.get("note"))
+            rows.add(rule["id"], "pass",
+                     f"{rule['title']}: все свойства, которые Google рекомендует, на месте",
+                     entity=label, note=note)
+
 
 # ------------------------------------------------------------------------------- проверка сущности
 
 def check_entity(rows: Rows, ent: dict, ids_seen: Counter, refs: list, canonical: str | None):
     node, path, types = ent["node"], ent["path"], ent["types"]
+    via = ent.get("via")
     label = (types[0] if types else "?") + " @ " + path
     if not types:
         oid = node.get("@id")
@@ -746,8 +845,8 @@ def check_entity(rows: Rows, ent: dict, ids_seen: Counter, refs: list, canonical
                  entity=label, value=bad_nums[:10])
 
     # --- отзывы о себе
-    if types_set & {"Organization", "LocalBusiness"} or any(
-            t.endswith(("Business", "Store")) for t in types):
+    if (types_set & {"Organization", "LocalBusiness"} or any(
+            t.endswith(("Business", "Store")) for t in types)) and via not in ROLE_PROPS:
         if node.get("review") or node.get("aggregateRating"):
             rows.add("markup.sd_self_serving", "fail",
                      "Отзывы о себе: страница, где сущность сама контролирует отзывы, звёзд не получает",
@@ -756,7 +855,8 @@ def check_entity(rows: Rows, ent: dict, ids_seen: Counter, refs: list, canonical
     # --- url против canonical
     if canonical:
         own = node.get("url")
-        if isinstance(own, str) and own.strip() and types_set & {"WebPage", "Article", "NewsArticle",
+        if isinstance(own, str) and own.strip() and via not in ROLE_PROPS \
+                and types_set & {"WebPage", "Article", "NewsArticle",
                                                                  "BlogPosting", "Product", "Event",
                                                                  "JobPosting", "Recipe", "ProfilePage"}:
             same = page_facts._same_url(own.strip(), canonical)
@@ -773,8 +873,8 @@ def check_entity(rows: Rows, ent: dict, ids_seen: Counter, refs: list, canonical
                  if agg else "AggregateOffer на странице продажи не используется", entity=label,
                  note="В product snippets AggregateOffer поддержан (facts-2026 §6)" if agg else None)
 
-    # --- обязательные поля по типам
-    _required_checks(rows, node, types, label)
+    # --- поля типов по документации Google
+    _required_checks(rows, node, types, label, via)
 
     # --- @id
     oid = node.get("@id")
@@ -803,8 +903,19 @@ def _plain(text) -> str:
     return re.sub(r"\s+", " ", folded).strip().lower()
 
 
-def _visible_values(rows: Rows, entities: list, visible: str):
+def _visible_values(rows: Rows, entities: list, visible: str, hydration: dict | None = None):
     """facts-2026 §6 / sd-policies: размечать только видимое. Эвристика по числам и названиям."""
+    if hydration and hydration.get("suspected"):
+        rows.add("markup.visible_values", "skip",
+                 "Значения подставляет браузер из состояния в скрипте ("
+                 + ", ".join(hydration.get("markers") or ["встроенное состояние"])
+                 + f", {hydration.get('inline_js_bytes')} байт скрипта на "
+                   f"{hydration.get('words_visible')} слов текста): без рендера сверить с видимым "
+                   "текстом нельзя",
+                 value={k: hydration.get(k) for k in ("markers", "inline_js_bytes",
+                                                       "words_visible", "bytes_per_word")},
+                 note="Это «нет данных», а не «у сайта всё хорошо»: проверьте в браузере")
+        return
     norm = _plain(visible)
     if not norm:
         rows.add("markup.visible_values", "skip", "Видимого текста нет (на входе JSON, не страница)")
@@ -844,7 +955,8 @@ def _visible_values(rows: Rows, entities: list, visible: str):
 
 def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None = None,
                           rdfa_types: list | None = None, visible_text: str = "",
-                          url: str | None = None, canonical: str | None = None) -> dict:
+                          url: str | None = None, canonical: str | None = None,
+                          hydration: dict | None = None) -> dict:
     """jsonld_blocks — блоки в формате page_facts._parse_jsonld (parse_ok, data, line, types)."""
     rows = Rows()
     microdata_types = [t.split("/")[-1] for t in (microdata_types or [])]
@@ -955,7 +1067,7 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
                  note="Разметка не вредит — не обещайте по ней карточку в выдаче")
     else:
         rows.add("markup.retired_type", "pass", "Снятых типов на странице нет")
-    _visible_values(rows, entities[:MAX_ENTITIES], visible_text)
+    _visible_values(rows, entities[:MAX_ENTITIES], visible_text, hydration)
 
     by_status = Counter(r["status"] for r in rows.rows)
     first = [r["id"] for r in rows.rows if r["status"] in ("fail", "warn")
@@ -990,7 +1102,8 @@ def check_page(html: str, *, url: str | None = None, headers: dict | None = None
     out = check_structured_data(jsonld_blocks=facts["json_ld"],
                                 microdata_types=facts["microdata_types"],
                                 rdfa_types=facts["rdfa_types"], visible_text=vis["text"], url=url,
-                                canonical=canonical)
+                                canonical=canonical,
+                                hydration=(facts.get("csr") or {}).get("hydration"))
     out["hidden_instructions"] = facts["hidden_instructions"]
     return out
 

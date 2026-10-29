@@ -9,6 +9,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import unittest
 
 import _localserver as ls  # noqa: F401  (puts scripts/ on sys.path)
@@ -566,7 +567,7 @@ class DocumentAndHeaderTest(unittest.TestCase):
                 '<div itemscope itemtype="https://schema.org/WebPage"></div></body></html>')
         rows = self.rows(html)
         self.assertEqual(rows["markup.hidden_markup"]["status"], "fail")
-        self.assertEqual(rows["markup.hidden_markup"]["value"], ["Product"])
+        self.assertEqual(rows["markup.hidden_markup"]["value"]["types"], ["Product"])
 
     def test_dates_of_markup_against_the_text(self):
         html = ('<html lang=en><head><title>t</title><script type="application/ld+json">'
@@ -624,6 +625,216 @@ class DocumentAndHeaderTest(unittest.TestCase):
                 'href="https://m.a.test/"></head><body>x</body></html>')
         self.assertEqual(self.rows(html)["mobile.alternate_media_link"]["status"], "info")
         self.assertEqual(self.rows()["mobile.alternate_media_link"]["status"], "pass")
+
+
+class HiddenMarkupTest(unittest.TestCase):
+    """markup.hidden_markup: отличить спрятанный от человека текст от штатных машинных значений.
+
+    QA 30.10.2026 (P2): проверка дала high дважды и оба раза зря — на `<meta itemprop>` внутри
+    `display:none` и на микроданных внутри слайдера, скрытого до инициализации скрипта.
+    """
+
+    def row(self, body):
+        html = f"<html lang=en><head><title>t</title></head><body>{body}</body></html>"
+        return by_id(pf.analyze_html(html, url="https://a.test/"))["markup.hidden_markup"]
+
+    def test_meta_only_subtree_is_not_a_violation(self):
+        row = self.row('<div itemscope itemtype="https://schema.org/Product">'
+                       '<div itemprop="offers" itemscope itemtype="https://schema.org/Offer" '
+                       'style="display:none">'
+                       '<meta itemprop="price" content="9.99">'
+                       '<meta itemprop="priceCurrency" content="USD"></div></div>')
+        self.assertEqual(row["status"], "pass")
+        self.assertIn("машинное значение", row["observation"])
+
+    def test_slider_panel_is_a_low_note_not_high(self):
+        row = self.row('<div class="t-slds__item" style="visibility:hidden">'
+                       '<div itemscope itemtype="https://schema.org/ImageObject">'
+                       '<span itemprop="name">Слайд</span></div></div>')
+        self.assertEqual(row["status"], "warn")
+        self.assertEqual(row["severity"], "low")
+        self.assertIn("class:slds", row["observation"])
+        self.assertIn("индексирует", row["note"])
+
+    def test_tabpanel_by_role(self):
+        row = self.row('<div role="tabpanel" style="display:none">'
+                       '<div itemscope itemtype="https://schema.org/Product">'
+                       '<span itemprop="name">Товар</span></div></div>')
+        self.assertEqual(row["status"], "warn")
+        self.assertEqual(row["severity"], "low")
+
+    def test_real_hidden_text_is_still_high(self):
+        row = self.row('<div style="display:none">'
+                       '<div itemscope itemtype="https://schema.org/Product">'
+                       '<span itemprop="name">Скрытый товар</span>'
+                       '<span itemprop="description">текст только для поисковика</span>'
+                       '</div></div>')
+        self.assertEqual(row["status"], "fail")
+        self.assertEqual(row["severity"], "high")
+        self.assertIn("facts-2026", row["note"])
+
+    def test_table_class_is_not_read_as_a_tab(self):
+        row = self.row('<div class="price-table" style="display:none">'
+                       '<div itemscope itemtype="https://schema.org/Product">'
+                       '<span itemprop="name">x</span></div></div>')
+        self.assertEqual(row["status"], "fail")
+
+    def test_visible_microdata_passes(self):
+        row = self.row('<div itemscope itemtype="https://schema.org/Product">'
+                       '<span itemprop="name">Товар</span></div>')
+        self.assertEqual(row["status"], "pass")
+
+    def test_no_microdata_is_skip(self):
+        self.assertEqual(self.row("<p>x</p>")["status"], "skip")
+
+
+class HydrationTest(unittest.TestCase):
+    """csr.hydration: значения приезжают из состояния в скрипте (QA 30.10.2026, P3)."""
+
+    def page(self, marker="window.__NUXT__", js_pad=120000, words=300):
+        body = "слово " * words
+        return ("<html lang=ru><head><title>t</title><script>" + marker + "={a:"
+                + '"x",' * js_pad + "}</script></head><body><main><p>" + body
+                + "</p></main></body></html>")
+
+    def test_marker_with_a_heavy_script_and_little_text(self):
+        h = pf.analyze_html(self.page(), url="https://a.test/")["csr"]["hydration"]
+        self.assertTrue(h["suspected"])
+        self.assertIn("__NUXT__", h["markers"])
+        self.assertGreater(h["bytes_per_word"], 300)
+        self.assertIn("ориентир редактора", h["method"])
+
+    def test_marker_without_weight_is_not_enough(self):
+        h = pf.analyze_html(self.page(js_pad=50), url="https://a.test/")["csr"]["hydration"]
+        self.assertFalse(h["suspected"])
+        self.assertIn("__NUXT__", h["markers"])
+
+    def test_weight_without_a_marker_is_not_enough(self):
+        h = pf.analyze_html(self.page(marker="window.gtagData"), url="https://a.test/")["csr"]["hydration"]
+        self.assertFalse(h["suspected"])
+        self.assertEqual(h["markers"], [])
+
+    def test_a_plain_page_is_not_suspected(self):
+        html = "<html lang=ru><head><title>t</title></head><body><main><p>текст</p></main></body></html>"
+        self.assertFalse(pf.analyze_html(html, url="https://a.test/")["csr"]["hydration"]["suspected"])
+
+    def test_next_data_marker_is_picked_up_from_the_script_id(self):
+        html = ('<html lang=ru><head><title>t</title>'
+                '<script id="__NEXT_DATA__" type="application/json">{"a":1}</script>'
+                '</head><body><main><p>текст</p></main></body></html>')
+        h = pf.analyze_html(html, url="https://a.test/")["csr"]["hydration"]
+        self.assertIn("__NEXT_DATA__", h["markers"])
+
+    def test_the_signal_appears_in_csr_signals(self):
+        r = pf.analyze_html(self.page(), url="https://a.test/")
+        self.assertTrue(any(sig.startswith("hydration:") for sig in r["csr"]["signals"]))
+
+
+class LcpCandidateTest(unittest.TestCase):
+    """images.lazy_first_screen: аватар 24 px кандидатом в LCP не бывает (QA 30.10.2026, P5)."""
+
+    def rows(self, body):
+        html = f"<html lang=en><head><title>t</title></head><body><main>{body}</main></body></html>"
+        return by_id(pf.analyze_html(html, url="https://a.test/"))
+
+    def test_small_avatar_on_lazy_is_not_a_finding(self):
+        rows = self.rows('<img src="/img/avatars/124.png" width="24" height="24" loading="lazy" alt="a">'
+                         '<img src="/img/hero.jpg" width="1200" height="600" alt="h">')
+        self.assertEqual(rows["images.lazy_first_screen"]["status"], "pass")
+        self.assertIn("hero.jpg", rows["speed.lcp_candidate"]["evidence"])
+
+    def test_a_big_image_on_lazy_is_still_a_finding(self):
+        rows = self.rows('<img src="/img/hero.jpg" width="1200" height="600" loading="lazy" alt="h">')
+        self.assertEqual(rows["images.lazy_first_screen"]["status"], "fail")
+        self.assertEqual(rows["images.lazy_first_screen"]["severity"], "high")
+
+    def test_name_alone_is_enough_to_skip(self):
+        for src in ("/i/logo.svg", "/static/icon-cart.png", "/sprite.png", "/img/userpic.jpg"):
+            with self.subTest(src):
+                rows = self.rows(f'<img src="{src}" loading="lazy" alt="x">')
+                self.assertEqual(rows["images.lazy_first_screen"]["status"], "skip", src)
+
+    def test_only_decorative_images_means_no_candidate(self):
+        rows = self.rows('<img src="/i/icon.png" width="16" height="16" loading="lazy" alt="i">')
+        self.assertEqual(rows["images.lazy_first_screen"]["status"], "skip")
+        self.assertIn("кандидатами в LCP не считаем", rows["images.lazy_first_screen"]["observation"])
+        self.assertEqual(rows["speed.lcp_candidate"]["value"]["skipped_decorative"], 1)
+
+    def test_an_image_without_declared_size_is_still_a_candidate(self):
+        rows = self.rows('<img src="/img/photo.jpg" loading="lazy" alt="p">')
+        self.assertEqual(rows["images.lazy_first_screen"]["status"], "fail")
+
+
+class NoRequirementWithoutASourceTest(unittest.TestCase):
+    """Страж: ориентир редактора нельзя подавать как требование (QA 30.10.2026, P1).
+
+    Где источника нет, в тексте проверки не может стоять «требует», «обязательн…» или «норма».
+    Единственное исключение — набор свойств, который требует сама спецификация: тогда она и названа
+    в источнике.
+    """
+
+    CLAIMS = ("обязательн", "требует", "требован")
+    # прямое отрицание требования — правильный текст, его из поиска убираем
+    DENIALS = re.compile(r"(?:а\s+)?не\s+(?:требован\w*|требует|обязательн\w*|нарушает\w*)"
+                         r"|не\s+требование|требований\s+(?:так\w*\s+)?нет|раздела\s+required\s+"
+                         r"\S*\s*нет")
+
+    def strip_denials(self, text: str) -> str:
+        return self.DENIALS.sub(" ", text)
+
+    def rows_of(self, *fixtures):
+        out = []
+        for name in fixtures:
+            r = pf.analyze_html(load(name), url="https://example.com/x", headers=GOOD_HEADERS)
+            out.extend(r["checks"])
+        return out
+
+    def test_editor_guideline_checks_never_claim_a_requirement(self):
+        for cid, meta in pf.CHECK_META.items():
+            source = meta[4].lower()
+            if "ориентир редактора" not in source:
+                continue
+            blob = self.strip_denials((meta[1] + " " + meta[2]).lower())
+            for word in self.CLAIMS:
+                self.assertNotIn(word, blob, f"{cid}: {meta[1]} / {meta[2]}")
+
+    def test_findings_of_such_checks_never_claim_a_requirement(self):
+        editor_only = {cid for cid, m in pf.CHECK_META.items()
+                       if m[4].lower().strip().startswith("ориентир редактора")}
+        self.assertGreater(len(editor_only), 5)
+        for row in self.rows_of("markup_poor.html", "markup_good.html", "basic_page.html"):
+            if row["id"] not in editor_only:
+                continue
+            blob = self.strip_denials(
+                " ".join(str(row.get(k, "")) for k in ("observation", "note")).lower())
+            for word in self.CLAIMS:
+                self.assertNotIn(word, blob, f"{row['id']}: {row['observation']}")
+
+    def test_a_check_that_does_claim_a_requirement_names_the_source(self):
+        for row in self.rows_of("markup_poor.html"):
+            blob = self.strip_denials(
+                " ".join(str(row.get(k, "")) for k in ("observation", "note")).lower())
+            if not any(w in blob for w in ("обязательн", "требует")):
+                continue
+            src = row["source"].lower()
+            self.assertTrue(
+                any(m in src for m in ("developers.google.com", "yandex", "w3.org", "whatwg",
+                                       "rfc", "ogp.me", "schema.org", "facts-2026")),
+                f"{row['id']}: источник {row['source']}")
+
+    def test_thresholds_of_our_own_are_named_as_such(self):
+        """Наши пороги печатаются словами «ориентир редактора» рядом с числом."""
+        rows = by_id(pf.analyze_html(load("markup_poor.html"), url="https://shop.test/x",
+                                     doc_bytes=2 * 1024 * 1024))
+        self.assertIn("ориентир редактора", rows["speed.html_bytes"]["note"])
+        self.assertIn("ориентир редактора", rows["images.alt_length"]["note"])
+        self.assertIn("ориентир редактора",
+                      pf.analyze_html(load("markup_good.html"), url="https://a.test/",
+                                      headers={"strict-transport-security": "max-age=60"})
+                      ["checks"][0]["source"] + " "
+                      + str(by_id(pf.analyze_html(load("markup_good.html"), url="https://a.test/",
+                                                  headers={"strict-transport-security": "max-age=60"}))
+                            ["security.hsts"]["note"]))
 
 
 class BackwardsCompatibilityTest(unittest.TestCase):

@@ -102,6 +102,7 @@ _MAX_INPUTS = 400
 _MAX_SUBRESOURCES = 2000
 LIST_LIMIT_RES = 200
 MAX_INLINE_CSS_KEPT = 64 * 1024
+MAX_INLINE_JS_KEPT = 256 * 1024
 
 # ---------------------------------------------------------------------------- instruction patterns
 # "strong" = an imperative or a direct address to a model/agent ("ignore previous…", "ты — ИИ",
@@ -306,6 +307,55 @@ def _hidden_reason(tag: str, attrs: dict) -> str | None:
     return None
 
 
+# Аватар, иконка, логотип или спрайт кандидатом в LCP не бывает: QA 30.10.2026 назвал «вероятным
+# кандидатом» аватар 24 px и выдал high. Мелкая заявленная сторона и служебное имя — признаки.
+# Слайдер, вкладка, аккордеон: содержимое скрыто до щелчка или до инициализации скрипта, и Google
+# такое индексирует. QA 30.10.2026: микроданные ImageObject внутри `.t-slds` получили high — ложно.
+PANEL_PARTS = re.compile(
+    r"(?<![a-z])(slds|slick|swiper|slider|slide|carousel|tabs?|tabpanel|tab-pane|accordion|"
+    r"collapse|owl|flickity|splide|glide|gallery|lightbox|modal|popup|dropdown-menu)(?![a-z])",
+    re.I)
+PANEL_ROLES = {"tabpanel", "tab", "dialog", "alertdialog", "tooltip", "menu", "listbox"}
+
+
+def _panel_signal(tag: str, attrs: dict) -> str | None:
+    role = (attrs.get("role") or "").strip().lower()
+    if role in PANEL_ROLES:
+        return "role:" + role
+    if "aria-selected" in attrs or "aria-expanded" in attrs:
+        return "aria-state"
+    blob = " ".join(filter(None, (attrs.get("class"), attrs.get("id"))))
+    m = PANEL_PARTS.search(blob)
+    return "class:" + m.group(1).lower() if m else None
+
+
+DECORATIVE_PARTS = re.compile(
+    r"avatar|userpic|icon|ico[-_/]|logo|sprite|badge|emoji|flag|placeholder|pixel|spacer|blank|"
+    r"loader|spinner|star|rating|arrow|chevron|bullet|divider|shim", re.I)
+LCP_MIN_SIDE = 100  # ориентир редактора: меньше — не первый экран, а деталь интерфейса
+
+
+def _decorative_image(src: str, attrs: dict) -> str | None:
+    """Почему картинка не может быть главной. None — может."""
+    w, h = _px(attrs.get("width")), _px(attrs.get("height"))
+    if w is not None and h is not None and (w < LCP_MIN_SIDE or h < LCP_MIN_SIDE):
+        return f"declared_{w}x{h}"
+    blob = " ".join(filter(None, (src, attrs.get("class"), attrs.get("id"), attrs.get("role"))))
+    m = DECORATIVE_PARTS.search(blob)
+    if m:
+        return "name:" + m.group(0).lower()
+    if (attrs.get("role") or "").lower() in ("presentation", "none"):
+        return "role:presentation"
+    return None
+
+
+def _px(value) -> int | None:
+    if value is None:
+        return None
+    m = re.match(r"\s*(\d{1,5})", str(value))
+    return int(m.group(1)) if m else None
+
+
 def _nav_signal(tag: str, attrs: dict) -> str | None:
     """Why this element looks like navigation: tag, role, class/id part or data-* attribute name."""
     if tag in NAV_TAGS:
@@ -326,7 +376,8 @@ def _nav_signal(tag: str, attrs: dict) -> str | None:
 
 
 class _Element:
-    __slots__ = ("tag", "region", "hidden", "buf", "line", "text_len", "nav", "el_id", "chars", "link_chars")
+    __slots__ = ("tag", "region", "hidden", "buf", "line", "text_len", "nav", "el_id", "chars",
+                 "link_chars", "md_types", "md_tags", "panel")
 
     def __init__(self, tag, region, hidden, line):
         self.tag, self.region, self.hidden, self.line = tag, region, hidden, line
@@ -336,6 +387,9 @@ class _Element:
         self.el_id: str | None = None
         self.chars = 0                   # text chars inside a hidden element
         self.link_chars = 0              # of them inside <a>
+        self.md_types: list[str] | None = None   # itemtype внутри скрытого поддерева
+        self.md_tags: Counter | None = None      # теги, несущие itemprop, внутри него
+        self.panel: str | None = None            # слайдер, вкладка, аккордеон
 
 
 class PageParser(HTMLParser):
@@ -372,7 +426,10 @@ class PageParser(HTMLParser):
         self.subresources: list[dict] = []
         self.iframes: list[dict] = []
         self.element_count = 0
-        self.itemtypes_hidden: list[str] = []
+        self.hidden_markup_blocks: list[dict] = []
+        self.inline_js_head: list[str] = []
+        self._inline_js_kept = 0
+        self._self_hidden_md: list[str] | None = None
         self.inline_css: list[str] = []
         self.css_backgrounds: list[dict] = []
         self.srcsets: list[dict] = []
@@ -472,8 +529,19 @@ class PageParser(HTMLParser):
                 self.attr_texts.append((name, val, line))
         if attrs.get("itemtype"):
             self.itemtypes.extend(attrs["itemtype"].split())
-            if self._hidden_ancestor() is not None or _hidden_reason(tag, attrs):
-                self.itemtypes_hidden.extend(attrs["itemtype"].split())
+            anc = self._hidden_ancestor()
+            if anc is not None:
+                if anc.md_types is None:
+                    anc.md_types = []
+                anc.md_types.extend(attrs["itemtype"].split())
+            elif _hidden_reason(tag, attrs):
+                self._self_hidden_md = attrs["itemtype"].split()
+        if attrs.get("itemprop") and "itemscope" not in attrs:
+            anc = self._hidden_ancestor()
+            if anc is not None:
+                if anc.md_tags is None:
+                    anc.md_tags = Counter()
+                anc.md_tags[tag] += 1
         if attrs.get("typeof"):
             self.rdfa_types.extend(attrs["typeof"].split())
 
@@ -500,7 +568,14 @@ class PageParser(HTMLParser):
         if hidden:
             outer = self._hidden_ancestor()
             el.nav = _nav_signal(tag, attrs) or (outer.nav if outer is not None else None)
+            el.panel = _panel_signal(tag, attrs) or (outer.panel if outer is not None else None)
             el.el_id = (attrs.get("id") or "").strip() or None
+            own = getattr(self, "_self_hidden_md", None)
+            if own:
+                el.md_types = list(own)
+                self._self_hidden_md = None
+            if attrs.get("itemprop") and "itemscope" not in attrs:
+                el.md_tags = Counter({tag: 1})
         else:
             anc = self._hidden_ancestor()
             if anc is not None and anc.nav is None:
@@ -550,6 +625,7 @@ class PageParser(HTMLParser):
             "fetchpriority": attrs.get("fetchpriority"), "srcset": bool(attrs.get("srcset")),
             "format": ext.group(1) if ext else None, "region": self._region(), "line": line,
             "hidden": self._hidden_ancestor() is not None,
+            "decorative": _decorative_image(src, attrs),
         })
 
     # -- markup and resource collection (facts only, no verdicts)
@@ -794,6 +870,16 @@ class PageParser(HTMLParser):
             self.lists.append(self._list_stack.pop())
         if self._pagination_stack and self._pagination_stack[-1]["depth"] >= len(self.stack):
             self.pagination_blocks.append(self._pagination_stack.pop())
+        if el.hidden and el.md_types:
+            tags = el.md_tags or Counter()
+            self.hidden_markup_blocks.append({
+                "reason": el.hidden, "line": el.line, "panel": el.panel,
+                "types": sorted({t.split("/")[-1] for t in el.md_types}),
+                "itemprop_tags": dict(tags), "chars": el.chars,
+                # только <meta>/<link> внутри — это штатный способ отдать машинное значение
+                "machine_only": el.chars == 0 and bool(tags)
+                and not (set(tags) - {"meta", "link"}),
+            })
         if el.hidden and el.buf is not None:
             text = " ".join(el.buf).strip()
             if text:
@@ -817,6 +903,10 @@ class PageParser(HTMLParser):
             data = "".join(s["parts"])
             if data and s["type"] in ("", "text/javascript", "module", "application/javascript"):
                 self.inline_script_bytes += len(data)
+                if self._inline_js_kept < MAX_INLINE_JS_KEPT:
+                    head = data[:4096]
+                    self.inline_js_head.append(head)
+                    self._inline_js_kept += len(head)
             if s["type"] == "application/ld+json":
                 self.jsonld_raw.append((data, s["line"]))
                 self.jsonld_in_head.append(bool(s.get("in_head")))
@@ -1123,12 +1213,12 @@ _HREFLANG_RE = re.compile(r"^(?:x-default|[a-z]{2,3}(?:-[a-z]{4})?(?:-(?:[a-z]{2
 
 
 # ------------------------------------------------------------------ page and markup checks (B)
-# Ids are the contract from plans/papa-seo-v2-2026-10-30/registry.json v0.2.1: `group.short_name`.
+# Ids are the contract from plans/papa-seo-v2-2026-10-30/registry.json v0.2.2: `group.short_name`.
 # A row whose id is not in that registry yet is marked registry="proposed" — the registry is
 # generated, so new ids go in through its generator, not by hand here.
 # `source` is where the requirement comes from. "ориентир редактора" means no search engine and no
 # standard asks for it: it is our editorial guideline, and the report says so.
-REGISTRY_VERSION = "0.2.0"
+REGISTRY_VERSION = "0.2.2"
 S_OGP = "Open Graph protocol (ogp.me) — четыре обязательных свойства"
 S_HTML = "HTML Living Standard (html.spec.whatwg.org)"
 S_WCAG = "W3C WCAG 2.2 (w3.org/TR/WCAG22/)"
@@ -1517,6 +1607,49 @@ _STYLE_SIZE_RE = re.compile(r"(?:^|;)\s*(?:width|height)\s*:", re.I)
 HSTS_MIN_AGE = 15552000  # 180 дней — ориентир редактора, в RFC 6797 минимума нет
 DOC_BYTES_GUIDE = 1024 * 1024  # ориентир редактора
 ALT_MAX = 250  # ориентир редактора
+
+
+# Гидратация: сервер отдаёт готовый HTML, но настоящие значения лежат в состоянии внутри скрипта,
+# и в DOM их подставляет браузер. QA 30.10.2026: 2 МБ документа, 1,76 МБ встроенного скрипта,
+# 945 слов текста — и 29 строк «значений разметки нет в видимом тексте». Без рендера этого не узнать,
+# поэтому такие проверки обязаны честно отвечать «нет данных», а не винить сайт.
+HYDRATION_MARKERS = (
+    "__NEXT_DATA__", "__NUXT__", "__NUXT_DATA__", "__INITIAL_STATE__", "__PRELOADED_STATE__",
+    "__APOLLO_STATE__", "__remixContext", "__sveltekit", "window.__NUXT", "self.__next_f",
+    "__INITIAL_DATA__", "__NEXT_REDUX_STORE__", "__REACT_QUERY_STATE__", "__STATE__",
+)
+HYDRATION_MIN_JS = 100 * 1024   # ориентир редактора
+HYDRATION_JS_PER_WORD = 300     # байт встроенного скрипта на слово видимого текста
+
+
+def _hydration(parser: PageParser, words: int) -> dict:
+    """Признаки того, что значения приезжают из состояния в скрипте, а не из разметки."""
+    blob = "".join(parser.inline_js_head)
+    markers = sorted({m for m in HYDRATION_MARKERS if m in blob})
+    if parser.next_data and "__NEXT_DATA__" not in markers:
+        markers.append("__NEXT_DATA__")
+    js = parser.inline_script_bytes
+    per_word = round(js / max(words, 1))
+    suspected = bool(markers) and js >= HYDRATION_MIN_JS and per_word >= HYDRATION_JS_PER_WORD
+    return {"suspected": suspected, "markers": markers, "inline_js_bytes": js,
+            "words_visible": words, "bytes_per_word": per_word,
+            "method": ("HEURISTIC: маркер состояния плюс встроенный скрипт от "
+                       f"{HYDRATION_MIN_JS} байт и от {HYDRATION_JS_PER_WORD} байт на слово текста "
+                       "— пороги наши, ориентир редактора")}
+
+
+def _lcp_candidate(images: list) -> tuple[dict | None, int]:
+    """Первая картинка основного содержимого, которая может быть главной, и сколько деталей
+    интерфейса пропущено по пути. Аватары, иконки и логотипы кандидатами не считаем."""
+    skipped = 0
+    for i in images:
+        if i["hidden"] or i["region"] in ("nav", "header", "footer"):
+            continue
+        if i.get("decorative"):
+            skipped += 1
+            continue
+        return i, skipped
+    return None, skipped
 
 
 def _parse_viewport(value: str) -> tuple[dict, list[str]]:
@@ -1972,12 +2105,14 @@ def resource_checks(ck: _Checks, parser: PageParser, doc_bytes: int, images: lis
            f"iframe без размеров: {len(no_dim)} из {len(iframes)}" if no_dim
            else (f"У всех {len(iframes)} iframe заданы размеры" if iframes else "iframe нет"),
            value=len(no_dim), evidence=f"строка {no_dim[0]['line']}" if no_dim else None)
-    content_imgs = [i for i in images if not i["hidden"] and i["region"] not in ("nav", "header", "footer")]
-    first = content_imgs[0] if content_imgs else None
+    first, skipped = _lcp_candidate(images)
     ck.add("speed.lcp_candidate", "info",
-           f"Первая картинка основного содержимого: {first['src']} (строка {first['line']})"
-           if first else "В основном содержимом картинок нет — кандидат, скорее всего, текстовый блок",
+           f"Первая крупная картинка основного содержимого: {first['src']} (строка {first['line']})"
+           + (f"; деталей интерфейса пропущено: {skipped}" if skipped else "")
+           if first else "Крупных картинок в основном содержимом нет — кандидат, скорее всего, "
+                         "текстовый блок",
            evidence=first["src"] if first else None,
+           value={"skipped_decorative": skipped},
            note="Настоящий LCP-элемент определяется только рендером: это гипотеза")
     ck.add("access.meta_refresh", "warn" if refresh else "pass",
            f"meta refresh: {refresh}" if refresh else "meta refresh нет", evidence=refresh,
@@ -2055,18 +2190,21 @@ def image_checks(ck: _Checks, images: list, parser: PageParser) -> dict:
         ck.add("images.hidden", "info" if hidden else "pass",
                f"В скрытых блоках: {len(hidden)} картинок" if hidden else "Картинок в скрытых блоках нет",
                value=len(hidden))
-        content_imgs = [i for i in images if not i["hidden"]
-                        and i["region"] not in ("nav", "header", "footer")]
-        first = content_imgs[0] if content_imgs else None
+        first, skipped_dec = _lcp_candidate(images)
         if first is None:
-            ck.add("images.lazy_first_screen", "skip", "В основном содержимом картинок нет")
+            ck.add("images.lazy_first_screen", "skip",
+                   "Крупных картинок в основном содержимом нет: аватары, иконки и логотипы "
+                   f"кандидатами в LCP не считаем (пропущено {skipped_dec})")
         elif (first["loading"] or "").lower() == "lazy":
             ck.add("images.lazy_first_screen", "fail",
-                   "Первая картинка основного содержимого стоит на loading=lazy — вероятный кандидат в LCP",
-                   evidence=first["src"],
-                   note="Эвристика: настоящий LCP-элемент знает только замер в браузере")
+                   "Первая крупная картинка основного содержимого стоит на loading=lazy — "
+                   "вероятный кандидат в LCP", evidence=first["src"],
+                   value={"line": first["line"], "skipped_decorative": skipped_dec},
+                   note="Эвристика: настоящий LCP-элемент знает только замер в браузере. Картинки "
+                        "с мелкой заявленной стороной и служебным именем пропущены")
         else:
-            ck.add("images.lazy_first_screen", "pass", "Первая картинка основного содержимого не на lazy")
+            ck.add("images.lazy_first_screen", "pass",
+                   "Первая крупная картинка основного содержимого не на lazy")
         high = [i for i in images if (i["fetchpriority"] or "").lower() == "high"]
         ck.add("images.fetchpriority_many", "warn" if len(high) > 2 else "pass",
                f"fetchpriority=high у {len(high)} картинок" if high
@@ -2437,12 +2575,33 @@ def doc_and_header_checks(ck: _Checks, parser: PageParser, headers: dict, fetch:
            value=len(stuffed), evidence=stuffed[0]["alt"] if stuffed else None,
            note="Эвристика по форме строки: много запятых без знаков конца или повтор одного слова")
     # --- microdata в скрытых блоках
-    hidden_md = sorted({t.split("/")[-1] for t in parser.itemtypes_hidden})
-    ck.add("markup.hidden_markup", "fail" if hidden_md else ("pass" if parser.itemtypes else "skip"),
-           "Микроданные внутри скрытых элементов: " + ", ".join(hidden_md) if hidden_md
-           else ("Микроданные не в скрытых блоках" if parser.itemtypes else "Микроданных нет"),
-           value=hidden_md or None,
-           note="Размечать разрешено только то, что видит человек (facts-2026 §6)" if hidden_md else None)
+    blocks = parser.hidden_markup_blocks
+    machine = [b for b in blocks if b["machine_only"]]
+    panels = [b for b in blocks if not b["machine_only"] and b["panel"]]
+    real = [b for b in blocks if not b["machine_only"] and not b["panel"]]
+    names = lambda rows: sorted({t for b in rows for t in b["types"]})
+    if real:
+        ck.add("markup.hidden_markup", "fail",
+               "Микроданные внутри скрытого от человека блока: " + ", ".join(names(real)),
+               value={"types": names(real), "lines": [b["line"] for b in real[:10]]},
+               evidence=f"строка {real[0]['line']}, скрыто: {real[0]['reason']}",
+               note="Размечать разрешено только то, что видит человек (facts-2026 §6)")
+    elif panels:
+        ck.add("markup.hidden_markup", "warn",
+               "Микроданные в панели, скрытой до щелчка или до инициализации скрипта ("
+               + panels[0]["panel"] + "): " + ", ".join(names(panels)), severity="low",
+               value={"types": names(panels), "lines": [b["line"] for b in panels[:10]]},
+               note="Содержимое вкладок и карусели Google индексирует: это не то же, что скрытый "
+                    "текст. Проверьте, что человек до него добирается")
+    elif machine:
+        ck.add("markup.hidden_markup", "pass",
+               "В скрытых узлах только <meta>/<link> с itemprop — штатный способ отдать машинное "
+               "значение: " + ", ".join(names(machine)),
+               value={"types": names(machine)})
+    else:
+        ck.add("markup.hidden_markup", "pass" if parser.itemtypes else "skip",
+               "Микроданные не в скрытых блоках" if parser.itemtypes else "Микроданных нет")
+    hidden_md = names(real) + names(panels)
     # --- даты разметки против текста
     rows = [r for r in dates.get("json_ld", []) if r.get("date_in_text") is not None]
     off = [r for r in rows if r["date_in_text"] is False]
@@ -2658,6 +2817,10 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
         csr_signals.append("framework_marker:__NEXT_DATA__")
     csr_suspected = bool(empty_roots) or "low_text_many_scripts" in csr_signals or (
         "noscript_enable_js" in csr_signals and words < 150)
+    hydration = _hydration(parser, words)
+    if hydration["suspected"]:
+        csr_signals.append("hydration:" + ",".join(hydration["markers"]) if hydration["markers"]
+                           else "hydration:inline_state")
 
     # hidden instructions
     for text, line in parser.comments:
@@ -2763,7 +2926,7 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
         "words_main_note": None if parser.main_found else "Нет <main>/<article>/role=main: слов в основной части не посчитать",
         "dates": dates,
         "scripts": {"total": parser.script_count, "external": parser.script_src_count},
-        "csr": {"suspected": csr_suspected, "signals": csr_signals},
+        "csr": {"suspected": csr_suspected, "signals": csr_signals, "hydration": hydration},
         "invisible_chars": inv_stats,
         "hidden_instructions": findings,
         "hidden_navigation_skipped": hidden_nav,

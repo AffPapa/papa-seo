@@ -1,6 +1,6 @@
 {
  "$id": "urn:papa-seo:registry:0.2.1",
- "version": "0.2.1",
+ "version": "0.2.2",
  "generated": "2026-10-30",
  "about": "Реестр параметров проверки сайта для papa-seo. Контракт между модулями и скриптами: audit.py собирает проверки по этому файлу. Поля: id (устойчивый, group.short_name), group, title, what, how (детерминированный рецепт), inputs, scope, deterministic, signal, severity, engine, source, source_kind, status, covered_by.",
  "rules": [
@@ -81,8 +81,8 @@
   "by_severity": {
    "critical": 12,
    "high": 54,
-   "medium": 126,
-   "low": 129,
+   "medium": 122,
+   "low": 133,
    "info": 94
   },
   "editor_reference_only": 77
@@ -2172,16 +2172,16 @@
   {
    "id": "markup.req_article",
    "group": "markup",
-   "title": "Обязательные поля: Article / NewsArticle / BlogPosting",
-   "what": "полнота узла Article / NewsArticle / BlogPosting по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (headline, image, datePublished, author (с author.name)); рекомендуемые (dateModified, publisher, mainEntityOfPage) — отдельным списком severity low",
+   "title": "Рекомендуемые поля: Article / NewsArticle / BlogPosting",
+   "what": "полнота узла Article / NewsArticle / BlogPosting; раздела Required у типа в документации Google нет",
+   "how": "при наличии типа на странице проверить рекомендуемые свойства (headline, image, datePublished, dateModified, author, author.name, author.url); обязательными их не называть — документация прямо говорит «There are no required properties», отсутствие свойства не нарушает требования",
    "inputs": [
     "jsonld"
    ],
    "scope": "page",
    "deterministic": true,
    "signal": "fact",
-   "severity": "medium",
+   "severity": "low",
    "engine": "both",
    "source": "Google structured data: Article (developers.google.com/search/docs/appearance/structured-data/article); словарь — schema.org/Article; facts-2026 §6",
    "source_kind": "google",
@@ -2193,9 +2193,9 @@
   {
    "id": "markup.req_breadcrumb",
    "group": "markup",
-   "title": "Обязательные поля: BreadcrumbList",
-   "what": "полнота узла BreadcrumbList по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (itemListElement с ListItem; у каждого position и name; item у всех, кроме последнего); рекомендуемые (непрерывная нумерация position с 1) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: BreadcrumbList",
+   "what": "полнота узла BreadcrumbList по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (itemListElement с ListItem; у каждого position и item (у последнего item не нужен); name — кроме случаев, перечисленных в документации); рекомендуемые (непрерывная нумерация position с 1) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2214,9 +2214,9 @@
   {
    "id": "markup.req_product",
    "group": "markup",
-   "title": "Обязательные поля: Product (product snippet)",
-   "what": "полнота узла Product (product snippet) по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (name; плюс один из: review, aggregateRating, offers); рекомендуемые (image, description, sku, brand, gtin) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: Product (product snippet)",
+   "what": "полнота узла Product (product snippet) по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (name; плюс один из: review, aggregateRating, offers); рекомендуемые (image, description, sku, brand, gtin, category) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2235,9 +2235,9 @@
   {
    "id": "markup.req_offer",
    "group": "markup",
-   "title": "Обязательные поля: Offer / merchant listing",
-   "what": "полнота узла Offer / merchant listing по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (name, image, offers; в Offer — price > 0 и priceCurrency); рекомендуемые (availability, shippingDetails, hasMerchantReturnPolicy, priceValidUntil; AggregateOffer на странице продажи не поддерживается) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: Offer / merchant listing",
+   "what": "полнота узла Offer / merchant listing по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (name, image, offers; в Offer — price (или priceSpecification.price) больше нуля и priceCurrency); рекомендуемые (availability, itemCondition, shippingDetails, hasMerchantReturnPolicy, priceValidUntil, url; AggregateOffer на странице продажи не поддерживается) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2256,16 +2256,16 @@
   {
    "id": "markup.req_organization",
    "group": "markup",
-   "title": "Обязательные поля: Organization",
-   "what": "полнота узла Organization по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (name, url); рекомендуемые (logo, sameAs, address, contactPoint, @id — один узел на сайт) — отдельным списком severity low",
+   "title": "Рекомендуемые поля: Organization",
+   "what": "полнота узла Organization; раздела Required у типа в документации Google нет",
+   "how": "при наличии типа на странице проверить рекомендуемые свойства (name, url, logo, sameAs, address, contactPoint, description, legalName, telephone); обязательными их не называть — документация прямо говорит «There are no required properties», отсутствие свойства не нарушает требования",
    "inputs": [
     "jsonld"
    ],
    "scope": "page",
    "deterministic": true,
    "signal": "fact",
-   "severity": "medium",
+   "severity": "low",
    "engine": "both",
    "source": "Google structured data: Organization (developers.google.com/search/docs/appearance/structured-data/organization); словарь — schema.org/Organization; facts-2026 §6",
    "source_kind": "google",
@@ -2277,9 +2277,9 @@
   {
    "id": "markup.req_person",
    "group": "markup",
-   "title": "Обязательные поля: Person / ProfilePage",
-   "what": "полнота узла Person / ProfilePage по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (в ProfilePage — mainEntity с Person; у Person — name); рекомендуемые (image, sameAs, jobTitle, worksFor, description) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: Person / ProfilePage",
+   "what": "полнота узла Person / ProfilePage по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (в ProfilePage — mainEntity; у Person или Organization в нём — name); рекомендуемые (image, sameAs, alternateName, description, identifier) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2298,9 +2298,9 @@
   {
    "id": "markup.req_event",
    "group": "markup",
-   "title": "Обязательные поля: Event",
-   "what": "полнота узла Event по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (name, startDate, location (Place с address или VirtualLocation с url)); рекомендуемые (endDate, eventStatus, eventAttendanceMode, offers, performer, image) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: Event",
+   "what": "полнота узла Event по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (name, startDate, location с location.address (у онлайн-события — VirtualLocation с url)); рекомендуемые (description, endDate, eventStatus, image, offers, organizer, performer) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2319,9 +2319,9 @@
   {
    "id": "markup.req_jobposting",
    "group": "markup",
-   "title": "Обязательные поля: JobPosting",
-   "what": "полнота узла JobPosting по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (title, description, datePosted, hiringOrganization, jobLocation (или jobLocationType=TELECOMMUTE)); рекомендуемые (validThrough, baseSalary, employmentType, identifier) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: JobPosting",
+   "what": "полнота узла JobPosting по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (title, description, datePosted, hiringOrganization, jobLocation — последний не нужен при applicantLocationRequirements, у полностью удалённой работы нужен jobLocationType=TELECOMMUTE); рекомендуемые (validThrough, baseSalary, employmentType, identifier, jobLocationType, directApply) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2340,9 +2340,9 @@
   {
    "id": "markup.req_localbusiness",
    "group": "markup",
-   "title": "Обязательные поля: LocalBusiness",
-   "what": "полнота узла LocalBusiness по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (name, address); рекомендуемые (telephone, openingHoursSpecification, geo, url, priceRange; каждая точка — свой узел и свой URL) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: LocalBusiness",
+   "what": "полнота узла LocalBusiness по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (name, address); рекомендуемые (telephone, openingHoursSpecification, geo, url, priceRange, aggregateRating, review, department; каждая точка — свой узел и свой URL) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2361,9 +2361,9 @@
   {
    "id": "markup.req_recipe",
    "group": "markup",
-   "title": "Обязательные поля: Recipe",
-   "what": "полнота узла Recipe по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (name, image); рекомендуемые (recipeIngredient, recipeInstructions, cookTime, prepTime, totalTime, recipeYield, nutrition, aggregateRating, video) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: Recipe",
+   "what": "полнота узла Recipe по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (name, image); рекомендуемые (author, datePublished, description, keywords, recipeIngredient, recipeInstructions, prepTime, cookTime, totalTime, recipeYield, recipeCategory, recipeCuisine, nutrition.calories, aggregateRating, video) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2382,9 +2382,9 @@
   {
    "id": "markup.req_videoobject",
    "group": "markup",
-   "title": "Обязательные поля: VideoObject",
-   "what": "полнота узла VideoObject по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (name, thumbnailUrl, uploadDate); рекомендуемые (description, duration, contentUrl, embedUrl, creator (уточнено 24.09.2026)) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: VideoObject",
+   "what": "полнота узла VideoObject по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (name, thumbnailUrl, uploadDate); рекомендуемые (description, duration, contentUrl, embedUrl, creator (уточнено 24.09.2026), expires, interactionStatistic, regionsAllowed) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2403,18 +2403,18 @@
   {
    "id": "markup.req_website",
    "group": "markup",
-   "title": "Обязательные поля: WebSite + SearchAction",
-   "what": "полнота узла WebSite + SearchAction по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (в SearchAction — target с {search_term_string} и query-input); рекомендуемые (name, alternateName, url у WebSite) — отдельным списком severity low",
+   "title": "Рекомендуемые поля: WebSite + SearchAction (функция выведена)",
+   "what": "полнота узла WebSite + SearchAction (функция выведена); раздела Required у типа в документации Google нет",
+   "how": "при наличии типа на странице проверить рекомендуемые свойства (требований нет: документация Sitelinks search box снята 29.11.2024, функция в выдаче не показывается); обязательными их не называть — документация прямо говорит «There are no required properties», отсутствие свойства не нарушает требования",
    "inputs": [
     "jsonld"
    ],
    "scope": "page",
    "deterministic": true,
    "signal": "fact",
-   "severity": "medium",
+   "severity": "low",
    "engine": "both",
-   "source": "Google structured data: WebSite / SearchAction (developers.google.com/search/docs/appearance/structured-data/sitelinks-searchbox); словарь — schema.org/WebSite; facts-2026 §6",
+   "source": "Google Search updates, 29.11.2024 — «Removing sitelinks search box documentation»: «The sitelinks search box feature is no longer available in Google Search results»; facts-2026 §6",
    "source_kind": "google",
    "status": "есть",
    "covered_by": [
@@ -2424,9 +2424,9 @@
   {
    "id": "markup.req_itemlist",
    "group": "markup",
-   "title": "Обязательные поля: ItemList / Carousel",
-   "what": "полнота узла ItemList / Carousel по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (itemListElement с ListItem; position и url (или вложенный объект) у каждого); рекомендуемые (name, numberOfItems) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: ItemList / Carousel",
+   "what": "полнота узла ItemList / Carousel по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (itemListElement с ListItem; у каждого position и url — либо item с item.name и item.url); рекомендуемые (name, numberOfItems) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2445,9 +2445,9 @@
   {
    "id": "markup.req_qapage",
    "group": "markup",
-   "title": "Обязательные поля: QAPage",
-   "what": "полнота узла QAPage по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (mainEntity с Question: name, acceptedAnswer или suggestedAnswer с text); рекомендуемые (answerCount, upvoteCount, author, dateCreated) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: QAPage",
+   "what": "полнота узла QAPage по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (mainEntity с Question: name, answerCount и acceptedAnswer или suggestedAnswer с text); рекомендуемые (author, upvoteCount, datePublished, dateModified, image, text) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2466,9 +2466,9 @@
   {
    "id": "markup.req_review",
    "group": "markup",
-   "title": "Обязательные поля: Review / AggregateRating",
-   "what": "полнота узла Review / AggregateRating по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (в Review — reviewRating с ratingValue, author; в AggregateRating — ratingValue и ratingCount или reviewCount); рекомендуемые (bestRating, worstRating, datePublished; видимые отзывы на странице) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: Review / AggregateRating",
+   "what": "полнота узла Review / AggregateRating по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (в Review — author и reviewRating с ratingValue; в AggregateRating — ratingValue и ratingCount либо reviewCount; itemReviewed у невложенного узла); рекомендуемые (bestRating, worstRating, datePublished; видимые отзывы на странице) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2487,9 +2487,9 @@
   {
    "id": "markup.req_softwareapp",
    "group": "markup",
-   "title": "Обязательные поля: SoftwareApplication",
-   "what": "полнота узла SoftwareApplication по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (name, offers (или price 0) и aggregateRating либо review, applicationCategory или operatingSystem); рекомендуемые (screenshot, softwareVersion) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: SoftwareApplication",
+   "what": "полнота узла SoftwareApplication по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (name, offers.price (у бесплатного приложения 0), плюс aggregateRating либо review); рекомендуемые (applicationCategory, operatingSystem, screenshot, softwareVersion) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2508,19 +2508,19 @@
   {
    "id": "markup.req_faqpage",
    "group": "markup",
-   "title": "Обязательные поля: FAQPage",
-   "what": "полнота узла FAQPage по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (mainEntity с Question и acceptedAnswer.text); рекомендуемые (словарь допустим, rich result в Google закрыт с 07.05.2026 и у Яндекса не поддержан — выдачу не обещать) — отдельным списком severity low",
+   "title": "Рекомендуемые поля: FAQPage",
+   "what": "полнота узла FAQPage; раздела Required у типа в документации Google нет",
+   "how": "при наличии типа на странице проверить рекомендуемые свойства (по словарю schema.org: mainEntity с Question и acceptedAnswer.text; требований Google нет — документация снята 15.06.2026, rich result закрыт с 07.05.2026, у Яндекса тип не поддержан); обязательными их не называть — документация прямо говорит «There are no required properties», отсутствие свойства не нарушает требования",
    "inputs": [
     "jsonld"
    ],
    "scope": "page",
    "deterministic": true,
    "signal": "fact",
-   "severity": "medium",
+   "severity": "low",
    "engine": "both",
-   "source": "Google structured data: FAQPage (developers.google.com/search/docs/appearance/structured-data/faqpage); словарь — schema.org/FAQPage; facts-2026 §6",
-   "source_kind": "google",
+   "source": "schema.org/FAQPage — строение по словарю; документация Google снята 15.06.2026, требований к типу у Google нет; facts-2026 §6",
+   "source_kind": "schemaorg",
    "status": "есть",
    "covered_by": [
     "schema_check.checks"
@@ -2529,9 +2529,9 @@
   {
    "id": "markup.req_discussion",
    "group": "markup",
-   "title": "Обязательные поля: DiscussionForumPosting",
-   "what": "полнота узла DiscussionForumPosting по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (author, datePublished, плюс text или image или video); рекомендуемые (headline, url, interactionStatistic) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: DiscussionForumPosting",
+   "what": "полнота узла DiscussionForumPosting по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (author с author.name, datePublished, плюс text или image или video); рекомендуемые (headline, url, interactionStatistic, comment, commentCount, dateModified, isPartOf) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2550,9 +2550,9 @@
   {
    "id": "markup.req_speakable",
    "group": "markup",
-   "title": "Обязательные поля: speakable",
-   "what": "полнота узла speakable по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (cssSelector или xPath, указывающий на существующий узел страницы); рекомендуемые (только для новостей, язык поддержки ограничен) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: speakable",
+   "what": "полнота узла speakable по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (cssSelector либо xPath (одно из двух), указывающий на существующий узел страницы); рекомендуемые (функция в бете, только новости и ограниченный набор языков) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2571,9 +2571,9 @@
   {
    "id": "markup.req_paywall",
    "group": "markup",
-   "title": "Обязательные поля: Платный контент (paywalledContent)",
-   "what": "полнота узла Платный контент (paywalledContent) по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (isAccessibleForFree=False и hasPart с cssSelector закрытой части); рекомендуемые (иначе закрытый текст в разметке читается как клоакинг) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: Платный контент (paywalledContent)",
+   "what": "полнота узла Платный контент (paywalledContent) по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (isAccessibleForFree); рекомендуемые (hasPart с @type, cssSelector закрытой части и isAccessibleForFree; без них закрытый текст в разметке читается как клоакинг) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2592,9 +2592,9 @@
   {
    "id": "markup.req_imagelicense",
    "group": "markup",
-   "title": "Обязательные поля: ImageObject: лицензия",
-   "what": "полнота узла ImageObject: лицензия по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (contentUrl, license, acquireLicensePage); рекомендуемые (creator, creditText, copyrightNotice) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: ImageObject: лицензия",
+   "what": "полнота узла ImageObject: лицензия по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (contentUrl плюс одно из: license, creator, creditText, copyrightNotice); рекомендуемые (acquireLicensePage, license, creator, creator.name, creditText, copyrightNotice) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
@@ -2613,9 +2613,9 @@
   {
    "id": "markup.req_dataset",
    "group": "markup",
-   "title": "Обязательные поля: Dataset",
-   "what": "полнота узла Dataset по требованиям Google",
-   "how": "при наличии типа на странице проверить обязательные свойства (name, description); рекомендуемые (жив только для Dataset Search, не для веб-выдачи) — отдельным списком severity low",
+   "title": "Обязательные и рекомендуемые поля: Dataset",
+   "what": "полнота узла Dataset по документации Google",
+   "how": "при наличии типа на странице проверить обязательные свойства (name, description); рекомендуемые (creator, license, identifier, keywords, url, sameAs, isAccessibleForFree, variableMeasured, temporalCoverage; жив только для Dataset Search, не для веб-выдачи) — отдельным списком severity low",
    "inputs": [
     "jsonld"
    ],
