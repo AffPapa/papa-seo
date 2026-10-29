@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Burr Grinder X2 — Shop Example</title>
+<link rel="canonical" href="https://shop.example/p/burr-x2">
+<link rel="icon" href="/favicon.ico">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://shop.example/#org",
+      "name": "Shop Example",
+      "url": "https://shop.example/",
+      "logo": "https://shop.example/logo.png",
+      "sameAs": ["https://www.linkedin.com/company/shop-example"],
+      "address": {"@type": "PostalAddress", "streetAddress": "12 Mill Lane",
+                  "addressLocality": "Leeds", "addressCountry": "GB"},
+      "contactPoint": {"@type": "ContactPoint", "telephone": "+44-113-000-0000",
+                       "contactType": "customer support"}
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://shop.example/#site",
+      "name": "Shop Example",
+      "alternateName": "ShopEx",
+      "url": "https://shop.example/",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://shop.example/search?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://shop.example/"},
+        {"@type": "ListItem", "position": 2, "name": "Grinders", "item": "https://shop.example/grinders/"},
+        {"@type": "ListItem", "position": 3, "name": "Burr Grinder X2"}
+      ]
+    },
+    {
+      "@type": "Product",
+      "name": "Burr Grinder X2",
+      "image": "https://shop.example/img/x2.jpg",
+      "description": "Flat 64 mm burrs, stepless adjustment.",
+      "sku": "BGX2",
+      "brand": {"@type": "Brand", "name": "Shop Example"},
+      "gtin": "05012345678900",
+      "offers": {
+        "@type": "Offer",
+        "price": 349.00,
+        "priceCurrency": "GBP",
+        "availability": "https://schema.org/InStock",
+        "priceValidUntil": "2027-01-31",
+        "shippingDetails": {"@type": "OfferShippingDetails", "deliveryTime": "P2D"},
+        "hasMerchantReturnPolicy": {"@type": "MerchantReturnPolicy", "returnPolicyCategory": "Refund"},
+        "url": "https://shop.example/p/burr-x2"
+      },
+      "aggregateRating": {"@type": "AggregateRating", "ratingValue": 4.6, "reviewCount": 112,
+                          "bestRating": 5, "worstRating": 1}
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<main>
+<h1>Burr Grinder X2</h1>
+<nav aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/grinders/">Grinders</a> / Burr Grinder X2</nav>
+<p>Flat 64 mm burrs, stepless adjustment. 349.00 GBP. Rated 4.6 by 112 buyers.</p>
+<img src="/img/x2.jpg" alt="Burr Grinder X2 on a counter" width="800" height="600">
+</main>
+</body>
+</html>
