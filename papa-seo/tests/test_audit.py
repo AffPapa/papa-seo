@@ -301,6 +301,34 @@ class TestReport(unittest.TestCase):
         again = json.loads(text)
         self.assertEqual(again["tool"], "audit")
 
+    def test_editor_guideline_tag_matches_the_source_it_shows(self):
+        """Строка, у которой в источнике написано «ориентир редактора», обязана нести пометку.
+
+        Источник в строку приходит от скрипта, а пометка приходила из реестра, и они
+        расходились: `mobile.viewport_device_width` выходил проблемой severity high с
+        источником «… — meta viewport; ориентир редактора» и без пометки, то есть мнение
+        подавалось как требование.
+        """
+        for path, base in ((BASIC, "https://example.com/catalog/"),
+                           (HOSTILE, "https://example.net/remont/")):
+            rep = self.report(path, keys=["ремонт квартир"], base=base)
+            rows = [r for p in rep["pages"] for g in p["groups"] for r in g["params"]]
+            rows += [r for g in (rep.get("site") or {}).get("groups") or [] for r in g["params"]]
+            self.assertTrue(rows)
+            untagged = [r["id"] for r in rows
+                        if au.is_editor_source(r.get("source")) and not r.get("editor_guideline")]
+            self.assertEqual(untagged, [], f"{path}: источник говорит «ориентир редактора»")
+
+    def test_value_text_reads_as_russian_not_as_python(self):
+        self.assertEqual(au.value_text({"has_title": True, "has_description": False}),
+                         "has_title: да · has_description: нет")
+        self.assertEqual(au.value_text(["ItemList", "FAQPage"]), "ItemList, FAQPage")
+        self.assertEqual(au.value_text([{"prop": "headline", "value": "x"}]),
+                         "prop: headline · value: x")
+        self.assertEqual(au.value_text({"nav": 2, "empty": [], "none": None}), "nav: 2")
+        self.assertEqual(au.value_text(None), "")
+        self.assertEqual(au.value_text(12), "12")
+
 
 class TestHtml(unittest.TestCase):
     @classmethod
@@ -310,6 +338,14 @@ class TestHtml(unittest.TestCase):
         cls.rep = au.build_report([page], registry=au.load_registry(), keys=["ремонт квартир"],
                                   options={"delay": 2.0}, requests_made=0)
         cls.html = au.render_html(cls.rep)
+
+    def test_no_python_repr_in_the_value_column(self):
+        """В отчёт владельцу сайта не попадает repr словаря из Python."""
+        cells = re.findall(r'<span class="mono">(.*?)</span>', self.html, re.S)
+        self.assertTrue(cells)
+        for cell in cells:
+            self.assertNotRegex(cell, r"\{&#x27;|&#x27;: |\[\{")
+            self.assertNotRegex(cell, r"\b(True|False|None)\b")
 
     def test_self_contained(self):
         self.assertNotIn("<script", self.html.lower())
@@ -399,6 +435,21 @@ class TestCli(unittest.TestCase):
         rc, out = run_cli([os.path.join(FIXTURES, "нет-такого.html")])
         self.assertEqual(json.loads(out)["code"], "bad_input")
 
+    def test_registry_path_that_does_not_exist_is_an_error(self):
+        """Опечатка в --registry молча оставляла 99 встроенных проверок и «не проверяли 0»:
+        отчёт выглядел полным, а реестра в нём не было."""
+        rc, out = run_cli([BASIC, "--base-url", "https://example.com/", "--registry",
+                           os.path.join(FIXTURES, "нет-такого-реестра.json")])
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(json.loads(out)["code"], "bad_registry_path")
+
+    def test_registry_path_that_exists_is_used(self):
+        reg = os.path.join(os.path.dirname(SCRIPTS), "references", "registry.json")
+        rc, out = run_cli([BASIC, "--base-url", "https://example.com/", "--registry", reg,
+                           "--json", "-", "--quiet"])
+        self.assertEqual(rc, 0)
+        self.assertGreater(json.loads(out)["coverage"]["registry_params"], 100)
+
 
 class TestManyPages(unittest.TestCase):
     def test_site_checks_find_duplicates(self):
@@ -451,6 +502,8 @@ class TestNetwork(unittest.TestCase):
         self.assertEqual(rows["access.robots_googlebot"]["verdict"], au.OK)
         self.assertEqual(rows["access.robots_txt_status"]["verdict"], au.OK)
         self.assertEqual(rows["access.robots_sitemap_line"]["verdict"], au.OK)
+        # В строке Sitemap показывают адрес, а не repr словаря {'value': …, 'line': 3}.
+        self.assertEqual(rows["access.robots_sitemap_line"]["value"], "http://x/sitemap.xml")
         self.assertEqual(rows["access.final_status"]["verdict"], au.OK)
         for cid in ("speed.ttfb", "speed.redirect_before_page", "speed.compression"):
             self.assertNotEqual(rows[cid]["verdict"], au.NODATA,

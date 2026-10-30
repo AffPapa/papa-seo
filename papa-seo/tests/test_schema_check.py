@@ -511,6 +511,27 @@ class ValueFormatTest(unittest.TestCase):
                                    "offers": {"@type": "Offer", "price": 100, "priceCurrency": "RUB"}}))
         self.assertEqual(status_of(r, "markup.visible_values"), "skip")
 
+    def test_visible_values_does_not_pass_a_microdata_only_page(self):
+        """Цена и рейтинг в микроданных — это «не проверяли», а не «норма».
+
+        В сущности разбирается только JSON-LD. Пустой список сущностей давал `pass`
+        с текстом «проверенные значения разметки есть в видимом тексте» — зелёная строка
+        на странице, где никто не посмотрел ни одного значения.
+        """
+        r = sc.check_structured_data(
+            jsonld_blocks=[], microdata_types=["https://schema.org/Product",
+                                               "https://schema.org/Offer"],
+            visible_text="Ламинат Kronotex 10 мм, 1890 рублей")
+        self.assertEqual(status_of(r, "markup.visible_values"), "skip")
+        row = rows_for(r, "markup.visible_values")[0]
+        self.assertIn("microdata", row["observation"])
+        self.assertIn("нет данных", (row.get("note") or "").lower())
+
+    def test_visible_values_says_there_is_nothing_to_compare_without_markup(self):
+        r = sc.check_structured_data(jsonld_blocks=[], visible_text="Просто текст страницы")
+        self.assertEqual(status_of(r, "markup.visible_values"), "skip")
+        self.assertIn("JSON-LD", rows_for(r, "markup.visible_values")[0]["observation"])
+
     def test_visible_values_matches_comma_decimals(self):
         node = self.ctx({"@type": "Product", "name": "Кофемолка Б3",
                          "offers": {"@type": "Offer", "price": 12990.5, "priceCurrency": "RUB"}})

@@ -909,8 +909,20 @@ def _plain(text) -> str:
     return re.sub(r"\s+", " ", folded).strip().lower()
 
 
-def _visible_values(rows: Rows, entities: list, visible: str, hydration: dict | None = None):
+def _visible_values(rows: Rows, entities: list, visible: str, hydration: dict | None = None,
+                    other_formats: list | None = None):
     """facts-2026 §6 / sd-policies: размечать только видимое. Эвристика по числам и названиям."""
+    if not entities:
+        # В сущности разбирается только JSON-LD. Раньше пустой список давал «норма»:
+        # страница с ценой и рейтингом в микроданных получала зелёную строку, хотя
+        # ни одного значения никто не смотрел. Непроверенное не считается исправным.
+        formats = sorted({str(f) for f in (other_formats or []) if f})
+        rows.add("markup.visible_values", "skip",
+                 "Разметка есть только в " + ", ".join(formats)
+                 + ": в сущности разбирается JSON-LD, значения не сверялись" if formats
+                 else "Сверять нечего: JSON-LD на странице нет",
+                 note="Это «нет данных», а не «у сайта всё хорошо»" if formats else None)
+        return
     if hydration and hydration.get("suspected"):
         rows.add("markup.visible_values", "skip",
                  "Значения подставляет браузер из состояния в скрипте ("
@@ -1082,7 +1094,8 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
                  note="Разметка не вредит — не обещайте по ней карточку в выдаче")
     else:
         rows.add("markup.retired_type", "pass", "Снятых типов на странице нет")
-    _visible_values(rows, entities[:MAX_ENTITIES], visible_text, hydration)
+    _visible_values(rows, entities[:MAX_ENTITIES], visible_text, hydration,
+                    other_formats=[n for n in formats if n != "JSON-LD"])
 
     by_status = Counter(r["status"] for r in rows.rows)
     first = [r["id"] for r in rows.rows if r["status"] in ("fail", "warn")

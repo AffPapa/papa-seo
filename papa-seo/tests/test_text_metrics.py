@@ -140,6 +140,44 @@ class TestEstimates(unittest.TestCase):
         self.assertEqual(tm.similar_runs([3, 12, 5, 20]), [])
         self.assertEqual(tm.similar_runs([2, 2, 2]), [])  # короткие не считаем
 
+    def test_similar_runs_matches_the_window_definition(self):
+        """Границы серии считаются на ходу; ответ должен остаться тем же, что у наивного
+        прохода окном. Наивный проход на тысячах предложений одной длины стоил квадрат."""
+        def naive(lengths, tolerance=0.2, min_run=3, min_len=5):
+            runs, i, n = [], 0, len(lengths)
+            while i < n:
+                j = i
+                while j + 1 < n:
+                    window = lengths[i:j + 2]
+                    lo, hi = min(window), max(window)
+                    if lo >= min_len and hi > 0 and (hi - lo) / hi <= tolerance:
+                        j += 1
+                    else:
+                        break
+                if j - i + 1 >= min_run:
+                    runs.append({"start": i, "count": j - i + 1, "lengths": lengths[i:j + 1]})
+                    i = j + 1
+                else:
+                    i += 1
+            return runs
+
+        import random
+        rnd = random.Random(20261030)
+        cases = [[], [7], [7, 7], [4, 4, 4, 4], [10, 10, 10, 10, 10],
+                 [10, 12, 10, 3, 9, 9, 9, 40, 8, 8, 8, 8],
+                 [6] * 200]
+        cases += [[rnd.choice([3, 5, 6, 7, 8, 9, 20]) for _ in range(60)] for _ in range(40)]
+        for case in cases:
+            self.assertEqual(tm.similar_runs(case), naive(case), case[:12])
+
+    def test_similar_runs_is_fast_on_a_long_flat_text(self):
+        import time
+        start = time.perf_counter()
+        runs = tm.similar_runs([11] * 20000)
+        spent = time.perf_counter() - start
+        self.assertEqual(len(runs), 1)
+        self.assertLess(spent, 1.0, "серия из 20 000 предложений не должна считаться квадратом")
+
     def test_cv_reported(self):
         r = tm.analyze("Одно короткое. А это предложение заметно длиннее предыдущего и тянется дальше.")
         self.assertIsNotNone(r["rhythm"]["sentence_words"]["cv"])

@@ -26,6 +26,7 @@ import re
 import statistics
 import sys
 from collections import Counter
+from functools import lru_cache
 from html.parser import HTMLParser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -186,8 +187,15 @@ def _r2_start(w: str) -> int:
     return after_vc(w, r1) if r1 < len(w) else len(w)
 
 
+@lru_cache(maxsize=64)
+def _by_length(endings: tuple) -> tuple:
+    """Окончания от длинного к короткому. Порядок один и тот же, сортировать каждый раз
+    незачем: на странице в 2 МБ _strip вызывается четыре миллиона раз."""
+    return tuple(sorted(endings, key=len, reverse=True))
+
+
 def _strip(rv: str, endings, need_ay: bool = False):
-    for e in sorted(endings, key=len, reverse=True):
+    for e in _by_length(tuple(endings)):
         if rv.endswith(e):
             if need_ay:
                 pre = rv[: -len(e)]
@@ -275,6 +283,7 @@ def is_cyr(word: str) -> bool:
     return any("а" <= ch.lower() <= "я" or ch in "ёЁ" for ch in word)
 
 
+@lru_cache(maxsize=1 << 16)
 def stem(word: str) -> str:
     if any(ch.isdigit() for ch in word):
         return word.lower()
@@ -901,11 +910,16 @@ def similar_runs(lengths: list[int], tolerance: float = 0.2, min_run: int = 3,
     runs, i, n = [], 0, len(lengths)
     while i < n:
         j = i
+        # Границы серии ведём на ходу. Раньше на каждый шаг нарезался весь текущий кусок
+        # и по нему считались min/max — на тексте из тысяч предложений одной длины это
+        # давало квадрат (5 МБ страницы считались 56 секунд, 7 из них здесь).
+        lo = hi = lengths[i]
         while j + 1 < n:
-            window = lengths[i:j + 2]
-            lo, hi = min(window), max(window)
-            if lo >= min_len and hi > 0 and (hi - lo) / hi <= tolerance:
-                j += 1
+            nxt = lengths[j + 1]
+            lo2 = lo if lo <= nxt else nxt
+            hi2 = hi if hi >= nxt else nxt
+            if lo2 >= min_len and hi2 > 0 and (hi2 - lo2) / hi2 <= tolerance:
+                lo, hi, j = lo2, hi2, j + 1
             else:
                 break
         if j - i + 1 >= min_run:

@@ -178,6 +178,11 @@ def _first(d: dict, names) -> object:
     return None
 
 
+def is_editor_source(source) -> bool:
+    """Источник сам называет себя мнением редактора, а не требованием документации."""
+    return isinstance(source, str) and "ориентир редактора" in source.lower()
+
+
 def _registry_items(data) -> list:
     """Реестр может лежать списком, под ключом params/parameters/checks или быть сгруппирован."""
     if isinstance(data, list):
@@ -254,8 +259,7 @@ def load_registry(path: str | None = None) -> dict:
                 "scope": str(_first(raw, _REG_ALIASES["scope"]) or "page").lower(),
                 "signal": str(_first(raw, _REG_ALIASES["signal"]) or "fact").lower(),
                 "deterministic": raw.get("deterministic", True) is not False,
-                "editor_guideline": kind == "editor" or (
-                    isinstance(source, str) and "ориентир редактора" in source),
+                "editor_guideline": kind == "editor" or is_editor_source(source),
             })
         if not items:
             warnings.append(f"в реестре не нашлось параметров: {cand}")
@@ -793,7 +797,11 @@ def c_robots_sitemap(ctx):
         return nodata("robots.txt не запрашивали")
     maps = ctx.get("robots_sitemaps") or []
     if maps:
-        return ok("Карта сайта объявлена", value="; ".join(esc(m, 120) for m in maps[:5]))
+        # robots_check отдаёт строку Sitemap словарём {value, line, absolute}; раньше в
+        # отчёт шёл str() этого словаря, то есть repr Python вместо адреса карты.
+        urls = [m.get("value") if isinstance(m, dict) else m for m in maps[:5]]
+        return ok("Карта сайта объявлена",
+                  value="; ".join(esc(u, 120) for u in urls if u))
     return warn("В robots.txt нет строки Sitemap",
                 fix="Добавить Sitemap: https://<домен>/sitemap.xml — это не обязательно, но дешево")
 
@@ -2180,6 +2188,12 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
             if merged["verdict"] in (BAD, WARN):
                 merged["severity"] = param["severity"] or merged["severity"]
             merged["source"] = row.get("source") or param["source"]
+            # Источник в строке берётся у скрипта, а пометка приходила из реестра — и они
+            # расходились: строка с источником «… ориентир редактора» выходила без пометки,
+            # то есть мнение подавалось как требование. Пометка считается по тому источнику,
+            # который человек видит, плюс флаг реестра.
+            merged["editor_guideline"] = bool(param["editor_guideline"]) or is_editor_source(
+                merged.get("source"))
             if param["signal"] == "estimate":
                 merged["kind"] = HEUR
                 merged["kind_label"] = KIND_RU[HEUR]
@@ -2202,7 +2216,9 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
                     "kind_label": "—", "source": param["source"]})
     for row in rows:
         if row["id"] not in used:
-            out.append(dict(row, off_registry=True))
+            out.append(dict(row, off_registry=True,
+                            editor_guideline=bool(row.get("editor_guideline"))
+                            or is_editor_source(row.get("source"))))
     return out
 
 
@@ -2507,6 +2523,36 @@ def _h(value) -> str:
     return html_mod.escape("" if value is None else str(value), quote=True)
 
 
+def value_text(value, depth: int = 0) -> str:
+    """Значение для человека, а не repr Python.
+
+    В колонку «значение» приходят и числа, и словари, и списки словарей. str() на словаре
+    даёт `{'has_title': True, ...}` — в отчёт, который читает владелец сайта, такое попадать
+    не должно.
+    """
+    if value is None or value is True or value is False:
+        return {None: "", True: "да", False: "нет"}[value]
+    if isinstance(value, (int, float)):
+        return f"{value:g}" if isinstance(value, float) else str(value)
+    if isinstance(value, str):
+        return value
+    if depth >= 3:
+        return "…"
+    if isinstance(value, dict):
+        parts = []
+        for key, val in value.items():
+            if val is None or (isinstance(val, (list, tuple, dict, str)) and len(val) == 0):
+                continue
+            parts.append(f"{key}: {value_text(val, depth + 1)}")
+        return " · ".join(parts)
+    if isinstance(value, (list, tuple, set)):
+        items = [value_text(v, depth + 1) for v in value]
+        items = [i for i in items if i]
+        sep = "; " if any(isinstance(v, (dict, list, tuple, set)) for v in value) else ", "
+        return sep.join(items)
+    return str(value)
+
+
 def _tags(row: dict) -> str:
     tags = []
     label = row.get("kind_label")
@@ -2530,7 +2576,9 @@ def _row_html(row: dict) -> str:
     verdict = row["verdict"]
     cell = []
     if row.get("value") not in (None, ""):
-        cell.append(f'<span class="mono">{_h(row["value"])}</span>')
+        shown = value_text(row["value"])
+        if shown:
+            cell.append(f'<span class="mono">{_h(shown)}</span>')
     if row.get("observation"):
         cell.append(f'<div>{_h(row["observation"])}</div>')
     if row.get("evidence"):
@@ -2832,6 +2880,11 @@ def main(argv: list[str] | None = None) -> int:
         options = {"base_url": args.base_url, "full": args.full, "lang": args.lang,
                    "robots": args.robots, "sitemap": args.sitemap, "ai_files": args.ai_files,
                    "delay": delay, "robots_cache": {}}
+        if args.registry and not os.path.isfile(args.registry):
+            # Молча уйти на встроенный список нельзя: опечатка в пути превращала «проверено
+            # 222 из 415» в 99 проверок и «не проверяли 0», то есть отчёт выглядел полным.
+            raise http_safe.CliError(
+                f"реестра нет по этому пути: {args.registry}", "bad_registry_path")
         registry = load_registry(args.registry)
 
         pages = []
