@@ -707,7 +707,7 @@ papa-seo/
   modules/       29 modules, one file per function
   references/    registry of 415 parameters, dated facts with sources, myths, bot roster, Yandex, page types, Russian style
   templates/     finding schema, brief, report, project context, voice profile
-  scripts/       11 scripts, Python 3.10+, standard library only
+  scripts/       12 scripts, 11 with a CLI, Python 3.10+, standard library only
   tests/         python3 -m unittest discover -s tests
 evals/           fixture site with planted defects and an answer key
 ```
