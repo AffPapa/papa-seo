@@ -113,7 +113,7 @@ Cursor читает .cursor/skills и .agents/skills в проекте, ~/.curso
 Собери zip для загрузки скила papa-seo в claude.ai. Сделай git clone https://github.com/AffPapa/papa-seo.git во временную папку, скопируй папку papa-seo/ в отдельный каталог, и в её SKILL.md замени значение description во frontmatter на эту строку (целиком, в одну строку): "SEO, GEO and content skill for Google, Yandex and AI search: page and site audits with evidence, briefs, articles, de-AI editing in RU/EN. Use for SEO audits, robots, schema, titles, SEO texts.". Больше ничего в файлах не меняй. Упакуй так, чтобы папка papa-seo/ была корнем архива: cd в каталог с papa-seo и zip -r papa-seo.zip papa-seo. Скажи мне путь к архиву. В мои папки скилов ничего не ставь.
 ```
 
-Этот промпт — для агента с файлами (Claude Code и т. п.), сам claude.ai zip не соберёт. Дальше руками: Customize → Skills → «+» → Upload a skill, включить code execution. У claude.ai description не длиннее 200 символов, в пакете она 948, поэтому без замены загрузка не пройдёт. Скил срабатывает сам по описанию; удалить — тумблер → «…» → Delete. С включённым syncClaudeAiSkills он появится и в Claude Code, в ~/.claude/skills/synced/.
+Этот промпт — для агента с файлами (Claude Code и т. п.), сам claude.ai zip не соберёт. Дальше руками: Customize → Skills → «+» → Upload a skill, включить code execution. У claude.ai description не длиннее 200 символов, в пакете она 975, поэтому без замены загрузка не пройдёт. Скил срабатывает сам по описанию; удалить — тумблер → «…» → Delete. С включённым syncClaudeAiSkills он появится и в Claude Code, в ~/.claude/skills/synced/.
 
 </details>
 
