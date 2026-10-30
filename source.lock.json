@@ -660,6 +660,36 @@
       "files_used": [
         "modules/voice.md"
       ]
+    },
+    {
+      "repo": "coleschaffer/dtc-copywriting-skills",
+      "url": "https://github.com/coleschaffer/dtc-copywriting-skills",
+      "commit": "57cd5a77b8bf0c60b3e565f20d2c306d5803e65d",
+      "commit_source": "local-clone-HEAD",
+      "license": "MIT",
+      "holder": "2026 Stefan Georgi",
+      "use": "ideas",
+      "spec_modules": [],
+      "license_file": "licenses/coleschaffer__dtc-copywriting-skills.txt",
+      "files_used": [
+        "modules/landing.md"
+      ],
+      "note": "дефицит и срочность только настоящие; код с исполняемыми преамбулами не брать"
+    },
+    {
+      "repo": "https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing",
+      "url": "https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing",
+      "commit": null,
+      "commit_source": null,
+      "license": "CC BY-SA 4.0",
+      "holder": "Wikipedia contributors",
+      "use": "ideas",
+      "spec_modules": [],
+      "license_file": null,
+      "files_used": [
+        "modules/deai.md"
+      ],
+      "note": "справочник, не репозиторий: признаки машинного текста как тема; каталог, формулировки и примеры свои"
     }
   ]
 }

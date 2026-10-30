@@ -12,7 +12,7 @@ Research dated 2026-10-24, pack 0.1.1. The full Russian write-up is [RESEARCH.md
 | Fake network | 89 repositories on 89 accounts, reviewed by metadata only |
 | Licenses across the original 94 | ✅ 71 · MIT in README only 10 · none/ARR/NC 9 · AGPL/CC BY-SA/fake 4 |
 | Donors whose wording was adapted | 23 |
-| Idea-only sources, nothing copied | 16 |
+| Idea-only sources, nothing copied | 15 |
 | Result | one skill: router, 29 modules, 9 stdlib scripts, 6 references, tests with attack fixtures |
 
 ## Method
@@ -49,7 +49,7 @@ Not done: no skill, script, installer or MCP server was run or installed; no ant
 | [robpalmer99/claude-code-copywriting-skills](https://github.com/robpalmer99/claude-code-copywriting-skills) | 7dbfd61 | CC BY 4.0 | landing, changes marked |
 | [every-app/open-seo](https://github.com/every-app/open-seo) | 2d8236a | MIT | report |
 
-Idea-only sources (no text or code taken): Horosheff/google-yandex-seo-skill, MYehia565/google-seo-agent-skills, Illyism/seo-skills, yabasha/copywrite-skill, Yaroslavle/seo-content-writer-claude-skill, alenazaharovaux/share, milcheliquids-ship-it/seo-text-skill, mazamaka/seo-skills-claude-code, affilino/ecommerce-seo-audit-skill, Aboudjem/humanizer-skill, flaqai/Awesome_SEO_Writing_Skill, smixs/humanizer-ru, BrianRWagner/ai-marketing-claude-code-skills, tigerless-labs/seo-ops, coleschaffer/dtc-copywriting-skills, Wikipedia "Signs of AI writing" (topic only).
+Idea-only sources (no text or code taken): Horosheff/google-yandex-seo-skill, MYehia565/google-seo-agent-skills, Illyism/seo-skills, yabasha/copywrite-skill, Yaroslavle/seo-content-writer-claude-skill, alenazaharovaux/share, milcheliquids-ship-it/seo-text-skill, mazamaka/seo-skills-claude-code, affilino/ecommerce-seo-audit-skill, Aboudjem/humanizer-skill, flaqai/Awesome_SEO_Writing_Skill, smixs/humanizer-ru, BrianRWagner/ai-marketing-claude-code-skills, coleschaffer/dtc-copywriting-skills, Wikipedia "Signs of AI writing" (topic only).
 
 ## Left out, by reason
 

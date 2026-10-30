@@ -15,7 +15,7 @@
 | Ещё разобрано только по README | около 35 |
 | Лицензии по 94 исходным | ✅ 71 · MIT только в README 10 · без лицензии/ARR/NC 9 · AGPL/CC BY-SA/фейк 4 |
 | Доноров, чьи формулировки адаптированы | 23 |
-| Источников идей без копирования | 16 |
+| Источников идей без копирования | 15 |
 | Де-AI редактура | 17 реализаций, почти все восходят к одной странице Wikipedia |
 | Яндекс | закрыт у одного донора; `YandexAdditional` не упомянут ни в одном из 105 |
 | Итог | один скил: роутер, 29 модулей, 9 скриптов на stdlib, 6 справочников, тесты с атаками |
@@ -93,8 +93,7 @@
 | [flaqai/Awesome_SEO_Writing_Skill](https://github.com/flaqai/Awesome_SEO_Writing_Skill) | 7d30056 | MIT | карточка задачи с явными допущениями | `brief` |
 | [smixs/humanizer-ru](https://github.com/smixs/humanizer-ru) | ff990df | MIT | ловить следы разметки ассистентов; регулярки написаны заново | `deai_scan.py` |
 | [BrianRWagner/ai-marketing-claude-code-skills](https://github.com/BrianRWagner/ai-marketing-claude-code-skills) | не запинен | MIT только в README | 3–5 сырых образцов для голоса | `voice` |
-| [tigerless-labs/seo-ops](https://github.com/tigerless-labs/seo-ops) | не открывался | нет | ростер ботов как данные с обоснованием; сами данные — из документации вендоров | `references/ai-bots` |
-| [coleschaffer/dtc-copywriting-skills](https://github.com/coleschaffer/dtc-copywriting-skills) | не открывался | MIT, код с преамбулами не брать | дефицит и срочность только настоящие | `landing` |
+| [coleschaffer/dtc-copywriting-skills](https://github.com/coleschaffer/dtc-copywriting-skills) | 57cd5a7 (HEAD клона) | MIT, код с преамбулами не брать | дефицит и срочность только настоящие | `landing` |
 | Wikipedia, «Signs of AI writing» | — | CC BY-SA 4.0 | признаки машинного текста как тема; каталог, формулировки и примеры свои | `deai` |
 
 ## 5. Не взяли и почему
@@ -229,6 +228,7 @@
 | [g-battaglia/mcp-seo](https://github.com/g-battaglia/mcp-seo) | MIT и AGPL в одном коммите; TLS выключен |
 | [ccforseo/seo-claude-code-skills](https://github.com/ccforseo/seo-claude-code-skills) | лицензии нет; `curl \| bash`; FAQ/HowTo как rich results |
 | [SNLabat/SEO-GEO-AEO-Skill](https://github.com/SNLabat/SEO-GEO-AEO-Skill) | лицензии нет |
+| [tigerless-labs/seo-ops](https://github.com/tigerless-labs/seo-ops) | лицензии нет (проверено клоном, LICENSE отсутствует); донором не числится. Ростер ботов в `references/ai-bots` собран из документации вендоров, а не отсюда |
 | anthropics/skills: docx, pdf, pptx, xlsx | проприетарные; формат SKILL.md — открытый стандарт |
 | один репозиторий фейковой сети | бейдж MIT без файла, автор не установлен |
 

@@ -746,7 +746,7 @@ What went into it, in numbers:
 
 - 105 repositories reviewed statically; no skill or installer was ever run. Safety verdicts: 40 clean, 56 with reservations, 9 rejected; no malicious code in any of them.
 - Another 89 repositories on 89 accounts turned out to be one fake network, reviewed by metadata only.
-- 23 donors whose wording was adapted, with attribution and a pinned commit; 16 sources where only an idea was taken.
+- 23 donors whose wording was adapted, with attribution and a pinned commit; 15 sources where only an idea was taken.
 - Of the original 94, 71 have a proper license, 10 say "MIT" only in the README, 9 have none or a closed one, 4 are AGPL, CC BY-SA or fake.
 - 17 de-AI editing implementations, nearly all tracing back to one Wikipedia page; Yandex covered by a single donor, YandexAdditional mentioned by none of the 105.
 - Left out, by group: paid APIs and hosted MCPs, ads inside reports, CAPTCHA bypass, wildcard uninstallers, remote SKILL.md, auto-merge, browser cookies.
