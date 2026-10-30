@@ -46,7 +46,7 @@ try:  # появится, если его добавит отдельный ск
 except Exception:  # pragma: no cover - модуля может не быть вовсе
     schema_check = None
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAX_PAGES = 20
 MAX_REGISTRY_BYTES = 4 * 1024 * 1024

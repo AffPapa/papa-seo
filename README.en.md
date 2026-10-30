@@ -184,9 +184,9 @@ npx skills add finds papa-seo/SKILL.md in the repository (checked 2026-10-26), p
 <summary>Download</summary>
 
 - [Download zip (main)](https://github.com/AffPapa/papa-seo/archive/refs/heads/main.zip)
-- [Release v0.2.0](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.0)
+- [Release v0.2.1](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.1)
 
-main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.2.0 is papa-seo-0.2.0.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
+main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.2.1 is papa-seo-0.2.1.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
 
 </details>
 ### Project context
@@ -204,7 +204,7 @@ python3 scripts/audit.py https://affpapa.org/neevents --keys "конференц
 Two requests to the site — the page and `robots.txt`. Everything else is computed locally. Real output, run on 2026-10-30 — the header prints UTC, where it was still the 29th. The summary is in Russian, like the rest of the skill:
 
 ```text
-papa-seo audit 0.2.0 · 2026-10-29T22:14:59Z UTC
+papa-seo audit 0.2.1 · 2026-10-29T22:14:59Z UTC
 адрес: https://affpapa.org/neevents
 страниц: 1 · запросов к сайту: 2
 проблем 1 · предупреждений 15 · норма 152 · нет данных 19 · не проверяли 190
