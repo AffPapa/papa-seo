@@ -115,7 +115,7 @@ ChatGPT has no skills folder, so this text isn't a command: it's the opening of 
 Build a zip for uploading the papa-seo skill to claude.ai. Run git clone https://github.com/AffPapa/papa-seo.git into a temporary folder, copy the papa-seo/ folder to a separate directory, and in its SKILL.md replace the description value in the frontmatter with this line (all of it, on one line): "SEO, GEO and content skill for Google, Yandex and AI search: page and site audits with evidence, briefs, articles, de-AI editing in RU/EN. Use for SEO audits, robots, schema, titles, SEO texts.". Change nothing else in the files. Pack it so that papa-seo/ is the root of the archive: cd into the directory that holds papa-seo and run zip -r papa-seo.zip papa-seo. Tell me the archive path. Don't install anything into my skills folders.
 ```
 
-This prompt is for an agent with files (Claude Code or similar); claude.ai itself won't build the zip. Then by hand: Customize → Skills → "+" → Upload a skill, with code execution on. claude.ai caps description at 200 characters and the pack's is 975, so the upload fails without the replacement. The skill triggers from its description; remove it with the toggle → "…" → Delete. With syncClaudeAiSkills on it also shows up in Claude Code under ~/.claude/skills/synced/.
+This prompt is for an agent with files (Claude Code or similar); claude.ai itself won't build the zip. Then by hand: Customize → Skills → "+" → Upload a skill, with code execution on. claude.ai caps description at 200 characters and the pack's is 1050, so the upload fails without the replacement. The skill triggers from its description; remove it with the toggle → "…" → Delete. With syncClaudeAiSkills on it also shows up in Claude Code under ~/.claude/skills/synced/.
 
 </details>
 
@@ -223,6 +223,34 @@ That is our own page and the findings on it are real: FAQPage is marked up for a
 `report.html` holds tables for all thirteen groups; every row carries a status, a value, an evidence snippet and the fix. It opens offline, has light and dark themes and prints. The same data machine-readable: `--json report.json`. Up to twenty URLs at once: `--pages list.txt`.
 
 What the report has not got: an "SEO 87/100" score. Such a score is assembled from weights nobody ever published. What it doesn't hide: 190 parameters went unchecked on this page, each with a reason — no check implemented, needs a site crawl, needs a browser or an export. Unchecked never reads as fine.
+
+### A whole site in one command
+
+When you need the picture across a site, not a single URL:
+
+```bash
+python3 scripts/audit.py --site https://example.com --out report.html
+```
+
+The skill finds the sitemap on its own (`sitemap.xml` at the root or from `robots.txt`, sitemap-index supported), takes a **representative sample of ~25 URLs** from it (the homepage always, then evenly across path types — sections, a couple of listing cards, a couple of articles; not consecutive). It fetches them one by one with a pause of at least 2 seconds, respects `robots.txt` (disallowed URLs are never requested) and counts every request. `--limit N` changes the sample size (sane ceiling of 100; above 30 it warns about load). No sitemap — it gathers key pages from the homepage's links.
+
+The report leads with a **site-wide fix-first queue**: a "Repeats across the site" block (one finding, how many pages it hits, with the URLs as evidence — these are cheapest to fix once in a template), then the rest by importance, and a per-page breakdown below. It ends with honest coverage: "checked N pages of ~M in the sitemap".
+
+#### One prompt for your agent
+
+Copy it, drop in your address, hand it to an agent that has papa-seo (Claude Code, Codex, Cursor, etc.):
+
+> Audit my whole site with the papa-seo skill and give me ONE list — what to fix in SEO across the site, most important first.
+>
+> Site: https://MY-SITE
+>
+> 1. Find the sitemap (sitemap.xml at the root or in robots.txt). No sitemap — collect key pages from the homepage and menu.
+> 2. Take a representative sample: homepage, sections, a couple of typical cards/articles — up to ~20–30 URLs. Don't hammer the site: go one by one, with a pause of at least 2 seconds, respect robots.txt.
+> 3. Run the audit on each page.
+> 4. Pull it all into ONE report: at the top, what blocks indexing or repeats across many pages (fix first); below it, the rest by importance; for each finding — which pages it appears on and a quoted piece of evidence.
+> 5. Be honest: how many pages out of how many were checked, and what the skill did not look at (anything needing a browser, exports, or a crawl).
+>
+> Don't change anything on the site without my word — show me the report first.
 
 ### Audit a page through the agent: does the markup match the text?
 

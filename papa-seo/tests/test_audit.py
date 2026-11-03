@@ -829,3 +829,169 @@ class TestSiteBlockForOnePage(unittest.TestCase):
         self.assertIn("Проверена одна страница", tail)
         self.assertLess(tail.index("<details>"), tail.index("<h3"),
                         "таблицы групп спрятаны под сворачиваемую строку")
+
+
+class TestSiteSampling(unittest.TestCase):
+    """Выборка адресов для --site: без сети, чистая логика."""
+
+    def test_homepage_is_always_first(self):
+        urls = ["https://s.ru/blog/1", "https://s.ru/", "https://s.ru/shop/2"]
+        picked = au.sample_site_urls(urls, 10, home="https://s.ru/")
+        self.assertEqual(picked[0], "https://s.ru/")
+
+    def test_homepage_added_when_missing(self):
+        urls = ["https://s.ru/blog/1", "https://s.ru/blog/2"]
+        picked = au.sample_site_urls(urls, 10, home="https://s.ru/")
+        self.assertEqual(picked[0], "https://s.ru/")
+
+    def test_limit_is_respected(self):
+        urls = [f"https://s.ru/blog/{i}" for i in range(100)]
+        picked = au.sample_site_urls(urls, 7, home="https://s.ru/")
+        self.assertEqual(len(picked), 7)
+        self.assertEqual(len(set(picked)), 7, "без повторов")
+
+    def test_sample_spreads_across_path_types(self):
+        urls = ([f"https://s.ru/blog/{i}" for i in range(20)]
+                + [f"https://s.ru/shop/{i}" for i in range(20)]
+                + ["https://s.ru/about"])
+        picked = au.sample_site_urls(urls, 7, home="https://s.ru/")
+        segs = {au._first_segment(u) for u in picked}
+        self.assertIn("blog", segs)
+        self.assertIn("shop", segs)
+        self.assertIn("about", segs)
+
+    def test_within_type_not_only_first_in_a_row(self):
+        urls = [f"https://s.ru/blog/{i:02d}" for i in range(20)]
+        picked = au.sample_site_urls(urls, 5, home="https://s.ru/")
+        blog = [u for u in picked if "/blog/" in u]
+        self.assertGreaterEqual(len(blog), 3)
+        self.assertNotEqual(blog, [f"https://s.ru/blog/{i:02d}" for i in range(len(blog))],
+                            "берём не первые подряд, а вразбивку")
+
+    def test_limit_bounds(self):
+        with self.assertRaises(au.http_safe.CliError):
+            au.check_site_limit(0)
+        with self.assertRaises(au.http_safe.CliError):
+            au.check_site_limit(au.SITE_SAMPLE_MAX + 1)
+        self.assertEqual(au.check_site_limit(au.SITE_SAMPLE_MAX), au.SITE_SAMPLE_MAX)
+
+
+class TestSiteCollect(unittest.TestCase):
+    """--site: обнаружение карты, выборка, уважение robots.txt. Сеть — локальный сервер."""
+
+    def _html(self):
+        with open(BASIC, encoding="utf-8") as fh:
+            return fh.read()
+
+    def _sitemap_routes(self, base):
+        locs = ([base + "/"]
+                + [f"{base}/blog/{i}" for i in range(12)]
+                + [f"{base}/shop/{i}" for i in range(6)]
+                + [f"{base}/secret/x"])
+        body = ('<?xml version="1.0" encoding="UTF-8"?>'
+                '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                + "".join(f"<url><loc>{loc}</loc></url>" for loc in locs)
+                + "</urlset>")
+        html = self._html()
+        routes = {
+            "/robots.txt": Route(200, f"User-agent: *\nDisallow: /secret\nSitemap: {base}/sitemap.xml\n",
+                                 {"Content-Type": "text/plain"}),
+            "/sitemap.xml": Route(200, body, {"Content-Type": "application/xml"}),
+        }
+        # каждая страница отдаёт одну и ту же разметку
+        def page(handler):
+            return Route(200, html, {"Content-Type": "text/html; charset=utf-8"})
+        for loc in locs:
+            routes[urlsplit_path(loc)] = page
+        return routes, locs
+
+    def test_collect_from_sitemap_and_skip_robots(self):
+        routes, locs = self._sitemap_routes("PLACEHOLDER")
+        with LocalServer({}) as srv:
+            # пересобрать маршруты под реальный порт
+            routes, locs = self._sitemap_routes(srv.base)
+            srv.routes = routes
+            fetcher = http_safe.Fetcher(delay=0, allow_local=True)
+            options = {"robots": True, "robots_cache": {}}
+            sources, meta = au.collect_site(srv.base, fetcher=fetcher, limit=8, options=options)
+        self.assertEqual(meta["source"], "sitemap")
+        self.assertTrue(meta["sitemap_total"] >= 19)
+        self.assertEqual(sources[0], srv.base + "/")
+        self.assertTrue(all("/secret" not in u for u in sources), "закрытое robots.txt не берём")
+        self.assertEqual(meta["robots_disallowed"], 1)
+        self.assertLessEqual(len(sources), 8)
+        # robots.txt закэширован под origin — постраничный аудит его не перезапросит
+        self.assertIn(srv.base, options["robots_cache"])
+
+    def test_no_sitemap_falls_back_to_homepage(self):
+        base_holder = {}
+        html = ('<html><head><title>Home</title></head><body>'
+                '<a href="/about">about</a><a href="/blog/1">b1</a>'
+                '<a href="https://other.example/x">ext</a></body></html>')
+        with LocalServer({}) as srv:
+            routes = {
+                "/": Route(200, html, {"Content-Type": "text/html; charset=utf-8"}),
+                "/about": Route(200, html, {"Content-Type": "text/html; charset=utf-8"}),
+                "/blog/1": Route(200, html, {"Content-Type": "text/html; charset=utf-8"}),
+                "/robots.txt": Route(404, "no"),
+                "/sitemap.xml": Route(404, "no"),
+            }
+            srv.routes = routes
+            fetcher = http_safe.Fetcher(delay=0, allow_local=True)
+            options = {"robots": True, "robots_cache": {}}
+            sources, meta = au.collect_site(srv.base + "/", fetcher=fetcher, limit=10, options=options)
+        self.assertEqual(meta["source"], "homepage")
+        self.assertEqual(sources[0], srv.base + "/")
+        self.assertTrue(any(u.endswith("/about") for u in sources))
+        self.assertTrue(all("other.example" not in u for u in sources), "чужой хост не берём")
+
+
+class TestSiteReport(unittest.TestCase):
+    """Сводный отчёт обхода: очередь «повторяется по сайту» и честный охват."""
+
+    def _page(self, base_url):
+        return au.audit_page(HOSTILE, fetcher=None, keys=[],
+                             options={"base_url": base_url, "robots": False})
+
+    def test_recurring_queue_counts_pages(self):
+        pages = [self._page("https://ex.ru/a/"), self._page("https://ex.ru/b/"),
+                 self._page("https://ex.ru/c/")]
+        scan = {"source": "sitemap", "sitemap_total": 42, "robots_disallowed": 2,
+                "picked": 3, "candidates": 40}
+        rep = au.build_report(pages, registry=au.load_registry(), keys=[],
+                              options={"delay": 2.0}, requests_made=5, site_scan=scan)
+        self.assertTrue(rep["recurring"], "одинаковые находки на 3 страницах должны всплыть наверх")
+        top = rep["recurring"][0]
+        self.assertEqual(top["count"], 3)
+        self.assertEqual(len(top["pages"]), 3)
+        # recurring отсортирован по числу страниц, затем серьёзности
+        counts = [a["count"] for a in rep["recurring"]]
+        self.assertEqual(counts, sorted(counts, reverse=True))
+        # постраничные дубли recurring убраны из общей очереди
+        rec_ids = {a["id"] for a in rep["recurring"]}
+        self.assertFalse([f for f in rep["fix_first"] if f.get("page") and f["id"] in rec_ids])
+
+    def test_coverage_text_is_honest(self):
+        pages = [self._page("https://ex.ru/a/"), self._page("https://ex.ru/b/")]
+        scan = {"source": "sitemap", "sitemap_total": 500, "robots_disallowed": 3, "picked": 2}
+        rep = au.build_report(pages, registry=au.load_registry(), keys=[],
+                              options={"delay": 2.0}, requests_made=4, site_scan=scan)
+        text = au._scan_coverage_text(rep)
+        self.assertIn("Проверено", text)
+        self.assertIn("500", text)
+        self.assertIn("robots.txt", text)
+        html = au.render_html(rep)
+        self.assertIn("Повторяется по сайту", html)
+        self.assertIn("500", html)
+
+    def test_homepage_source_says_no_sitemap(self):
+        pages = [self._page("https://ex.ru/")]
+        scan = {"source": "homepage", "sitemap_total": 4, "robots_disallowed": 0, "picked": 1}
+        rep = au.build_report(pages, registry=au.load_registry(), keys=[],
+                              options={"delay": 2.0}, requests_made=2, site_scan=scan)
+        self.assertIn("карты сайта нет", au._scan_coverage_text(rep))
+
+
+def urlsplit_path(url):
+    from urllib.parse import urlsplit as _us
+    return _us(url).path
