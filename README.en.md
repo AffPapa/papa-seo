@@ -7,12 +7,12 @@ An SEO, GEO and content skill for Claude Code and OpenAI Codex: audits a page or
 It isn't a hosted SEO tool. The skill runs inside your coding agent, reads the live HTML and the exports you give it, and attaches evidence to every claim it makes about your site.
 
 - Audits a page with one command: `python3 scripts/audit.py <url>` — two requests to the site, an HTML report with a fix-first queue. Behind that command is a registry of **415 parameters** in 13 groups: indexability, canonical, robots.txt, sitemaps, structured data, speed, mobile, security, internal links, text. Every parameter records what it is computed from and whether a search engine actually requires it.
-- **It doesn't pass advice off as a requirement.** Where the documentation states no requirement, the row is marked "editor guideline" — our opinion, not a Google rule; 77 parameters carry that mark, and a guard test refuses to let them be called required. Each finding quotes the HTML and carries a status: `confirmed`, `likely` or `hypothesis`.
+- **It doesn't pass advice off as a requirement.** Where the documentation states no requirement, the row is marked "editor guideline" — our opinion, not a Google rule; 77 registry parameters carry that mark, and a guard test refuses to let them be called required. Each report row has a value and a quoted piece of evidence, and the agent marks its own conclusions `confirmed`, `likely` or `hypothesis`.
 - Has a separate Yandex track (YandexAdditional, Clean-param, Yandex Webmaster, commercial signals).
 - For AI search, checks whether a page can show up in ChatGPT search, Perplexity, Google AI Overviews and Yandex Alice AI answers, which bots robots.txt lets in and whether a WAF blocks them. llms.txt is treated as optional.
 - Writes content briefs and sourced articles, refreshes old pages, edits and de-AIs Russian and English text. `factdiff.py` shows which numbers, dates and links an edit dropped.
 - Reads Google Search Console, Yandex Webmaster and GA4 exports: period comparison, traffic drops, striking-distance queries.
-- Free and MIT-licensed. No paid APIs; the scripts use only the Python standard library. No crawling by default: one page, or up to 20 URLs fetched one by one with a pause.
+- Free and MIT-licensed. No paid APIs; the scripts use only the Python standard library. It audits a whole site only when asked (`--site`): a sample of ~25 URLs from the sitemap, fetched one by one with a pause of at least 2 seconds.
 
 The skill's own instructions are in Russian, with standard English terms. It works on English sites and texts too, but the Yandex track and the Russian style layer assume a Russian-language market.
 
@@ -112,10 +112,10 @@ ChatGPT has no skills folder, so this text isn't a command: it's the opening of 
 <summary>claude.ai</summary>
 
 ```text
-Build a zip for uploading the papa-seo skill to claude.ai. Run git clone https://github.com/AffPapa/papa-seo.git into a temporary folder, copy the papa-seo/ folder to a separate directory, and in its SKILL.md replace the description value in the frontmatter with this line (all of it, on one line): "SEO, GEO and content skill for Google, Yandex and AI search: page and site audits with evidence, briefs, articles, de-AI editing in RU/EN. Use for SEO audits, robots, schema, titles, SEO texts.". Change nothing else in the files. Pack it so that papa-seo/ is the root of the archive: cd into the directory that holds papa-seo and run zip -r papa-seo.zip papa-seo. Tell me the archive path. Don't install anything into my skills folders.
+Build a zip for uploading the papa-seo skill to claude.ai. Run git clone https://github.com/AffPapa/papa-seo.git into a temporary folder, copy the papa-seo/ folder to a separate directory, and in its SKILL.md replace the description value in the frontmatter with this line (all of it, on one line): "SEO, GEO and content skill for Google, Yandex and AI search — page and site audits with evidence, briefs, articles, de-AI editing in RU/EN. Use for SEO audits, robots, schema, titles, SEO texts.". Change nothing else in the files. Pack it so that papa-seo/ is the root of the archive: cd into the directory that holds papa-seo and run zip -r papa-seo.zip papa-seo. Tell me the archive path. Don't install anything into my skills folders.
 ```
 
-This prompt is for an agent with files (Claude Code or similar); claude.ai itself won't build the zip. Then by hand: Customize → Skills → "+" → Upload a skill, with code execution on. claude.ai caps description at 200 characters and the pack's is 1050, so the upload fails without the replacement. The skill triggers from its description; remove it with the toggle → "…" → Delete. With syncClaudeAiSkills on it also shows up in Claude Code under ~/.claude/skills/synced/.
+This prompt is for an agent with files (Claude Code or similar); claude.ai itself won't build the zip. Then by hand: Customize → Skills → "+" → Upload a skill, with code execution on. claude.ai caps description at 200 characters and the pack's is 958, so the upload fails without the replacement. The replacement line has no colon followed by a space: unquoted, YAML would read it as a new key. The skill triggers from its description; remove it with the toggle → "…" → Delete. With syncClaudeAiSkills on it also shows up in Claude Code under ~/.claude/skills/synced/.
 
 </details>
 
@@ -184,9 +184,9 @@ npx skills add finds papa-seo/SKILL.md in the repository (checked 2026-10-26), p
 <summary>Download</summary>
 
 - [Download zip (main)](https://github.com/AffPapa/papa-seo/archive/refs/heads/main.zip)
-- [Release v0.2.1](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.1)
+- [Release v0.2.2](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.2)
 
-main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.2.1 is papa-seo-0.2.1.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
+main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.2.2 is papa-seo-0.2.2.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
 
 </details>
 ### Project context
@@ -232,25 +232,29 @@ When you need the picture across a site, not a single URL:
 python3 scripts/audit.py --site https://example.com --out report.html
 ```
 
-The skill finds the sitemap on its own (`sitemap.xml` at the root or from `robots.txt`, sitemap-index supported), takes a **representative sample of ~25 URLs** from it (the homepage always, then evenly across path types — sections, a couple of listing cards, a couple of articles; not consecutive). It fetches them one by one with a pause of at least 2 seconds, respects `robots.txt` (disallowed URLs are never requested) and counts every request. `--limit N` changes the sample size (sane ceiling of 100; above 30 it warns about load). No sitemap — it gathers key pages from the homepage's links.
-
-The report leads with a **site-wide fix-first queue**: a "Repeats across the site" block (one finding, how many pages it hits, with the URLs as evidence — these are cheapest to fix once in a template), then the rest by importance, and a per-page breakdown below. It ends with honest coverage: "checked N pages of ~M in the sitemap".
+The skill finds the sitemap on its own (`sitemap.xml` at the root or from `robots.txt`, sitemap-index supported), takes a **representative sample of ~25 URLs** from it (the homepage always, then evenly across path types — sections, a couple of listing cards, a couple of articles; not consecutive). It fetches them one by one with a pause of at least 2 seconds, respects `robots.txt` (disallowed URLs are never requested) and counts every request. `--limit N` changes the sample size (at most 100; above 30 it warns about load). No sitemap — it gathers key pages from the homepage's links.
 
 #### One prompt for your agent
 
 Copy it, drop in your address, hand it to an agent that has papa-seo (Claude Code, Codex, Cursor, etc.):
 
-> Audit my whole site with the papa-seo skill and give me ONE list — what to fix in SEO across the site, most important first.
->
-> Site: https://MY-SITE
->
-> 1. Find the sitemap (sitemap.xml at the root or in robots.txt). No sitemap — collect key pages from the homepage and menu.
-> 2. Take a representative sample: homepage, sections, a couple of typical cards/articles — up to ~20–30 URLs. Don't hammer the site: go one by one, with a pause of at least 2 seconds, respect robots.txt.
-> 3. Run the audit on each page.
-> 4. Pull it all into ONE report: at the top, what blocks indexing or repeats across many pages (fix first); below it, the rest by importance; for each finding — which pages it appears on and a quoted piece of evidence.
-> 5. Be honest: how many pages out of how many were checked, and what the skill did not look at (anything needing a browser, exports, or a crawl).
->
-> Don't change anything on the site without my word — show me the report first.
+> Audit the whole site https://MY-SITE with the papa-seo skill: audit.py --site, a sample from the sitemap, one URL at a time with a pause of at least 2 seconds, respect robots.txt. Save the report to report.html and sum it up: what blocks indexing, what repeats across many pages (which pages, with a quote from the HTML), what else to fix by importance. Say how many pages were checked out of how many in the sitemap and what the skill did not look at. Don't change anything on the site.
+
+The script finds the sitemap, takes the sample and keeps the pause on its own; the agent is left with the summary and honest coverage. If the script can't run, the agent does the same by hand under the same rules.
+
+### How to read the report
+
+The cards at the top: problems, warnings, fine, no data, not checked, plus how many of the 415 parameters were checked. With `--site` a coverage line follows: "checked N pages of ~M URLs in the sitemap" and how many URLs robots.txt kept out. (The report itself is in Russian; labels are quoted here in translation.)
+
+Then a one- or two-sentence verdict: whether anything blocks indexing (noindex, a non-200 response, a search bot blocked in robots.txt) and how many search engine requirements are unmet. A collapsed "How to read this report" note sits right under it.
+
+"Fix first" is one queue for the whole run. Blocking issues always come first. Search engine requirements come before editor advice. Within them the weight is multiplied by the number of pages the finding appears on (critical 27, high 9, medium 3, low 1): a medium issue on four pages ranks above a high one on a single page, because one template fix closes all four. On a single page this is plain severity order. "Repeats across the site" follows: the finding, how many pages, sample URLs.
+
+Each table row is marked "fact" (computed from HTML, headers or robots.txt; the same response gives the same result) or "estimate" (a heuristic, a reason to look). "Editor guideline" means this is our advice, not a search engine requirement. The registry has 77 such parameters; the report says how many were checked in this run, and that count also includes parameters where the requirement exists but the threshold is ours (title length in characters and the like).
+
+"Not checked" is not "fine". The note says why a row went unchecked: no check in the script, needs a crawl, or needs a browser and an export.
+
+The HTML report has no `confirmed`, `likely` or `hypothesis` statuses. The agent adds them to its own conclusions when it sums up the report: seen in the data, follows from the data with one assumption, needs checking (`papa-seo/policies/evidence.md`).
 
 ### Audit a page through the agent: does the markup match the text?
 
@@ -279,7 +283,7 @@ Ask in plain words ("check this page", "write a brief", "refresh this article") 
 | Mode | What it does |
 |---|---|
 | `page` | one page, or an HTML file before it goes live: title, description, headings, canonical, structured data, indexability |
-| `audit` | technical SEO audit from a URL sample: status codes, redirects, robots.txt, sitemap, markup, speed, internal links; ends with a report that states coverage |
+| `audit` | site audit: `--site` samples the sitemap, `--pages` takes your list of up to 20 URLs; status codes, redirects, robots.txt, sitemap, markup, speed, internal links; ends with a report that states coverage |
 | `yandex` | Yandex SEO: YandexAdditional, Clean-param, Webmaster, commercial signals, site moves |
 | `geo` | AI search (GEO/AEO): eligibility for ChatGPT, Perplexity, AI Overviews and Alice AI answers, AI bots in robots.txt, WAF, llms.txt |
 | `plan` | keyword research from your data: intents, clusters, query-to-page map, cannibalization |
@@ -724,6 +728,8 @@ python3 scripts/deai_scan.py article.md --genre expert --lang en --out scan.json
 python3 scripts/factdiff.py before.md after.md --out diff.json
 ```
 
+For an agent `--brief` is handier: stdout carries only the verdict and the findings queue, a few KB of JSON instead of hundreds. For CI: when a single page is audited and it answers with a non-2xx status, the report is still written and `audit.py` exits with code 2.
+
 Three more: `text_metrics.py` counts length, keyword placement by zone, density and readability (as an estimate) and has a `--compare before after` mode; `schema_check.py` parses JSON-LD and microdata on their own; `bot_verify.py` checks from a log whether Googlebot, YandexBot or Bingbot is real. Every script has `--help`.
 
 ## What's inside
@@ -755,7 +761,7 @@ The router loads only the module a request needs. The set of checks comes from t
 
 ## Safety and limits
 
-- No full-site crawl unless you ask. If you do, it crawls in a single thread and warns about the load.
+- No full-site crawl unless you ask. When asked (`--site`), it samples ~25 URLs from the sitemap and fetches them one by one with a pause of at least 2 seconds; a sample above 30 comes with a load warning, above 100 the script refuses.
 - It doesn't publish anything. Work stops at a patch; you approve what ships.
 - Fetched HTML, robots.txt, CSV files and competitor texts are data, not instructions. Hidden prompts in a page are reported as a finding. Scripts reach the network only through `http_safe.py`, which blocks private and internal addresses, re-checks every redirect hop and caps the response size.
 - It doesn't make up search volume, rankings, DR or CTR. Missing data is reported as missing. Paid APIs (DataForSEO, Ahrefs, Semrush, Serpstat, SE Ranking, Wordstat API, Yandex Search API) may be suggested, always marked as paid.
