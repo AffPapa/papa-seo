@@ -553,7 +553,16 @@ class TestRegistryContract(unittest.TestCase):
 
     def test_registry_version_reported(self):
         self.assertEqual(self.r["registry"], tm.REGISTRY)
-        self.assertIn("registry:0.2.0", tm.REGISTRY)
+        self.assertIn("registry:0.2.2", tm.REGISTRY)
+
+    def test_registry_id_matches_its_version(self):
+        import json as _json
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "references", "registry.json")
+        with open(path, encoding="utf-8") as fh:
+            reg = _json.load(fh)
+        self.assertEqual(reg["$id"], f"urn:papa-seo:registry:{reg['version']}")
+        self.assertEqual(tm.REGISTRY, reg["$id"])
 
     def test_zone_params_cover_all_zones(self):
         mapped = {v.split(".")[-1] for k, v in tm.PARAM_MAP.items()

@@ -148,15 +148,15 @@ class BrokenPageTest(unittest.TestCase):
     def test_required_fields(self):
         self.expect("markup.req_product", "fail")      # Name вместо name
         self.expect("markup.req_offer", "fail")        # нет name и image
-        # Article: раздела Required у типа нет — это предупреждение low, а не «нет обязательных»
+        # Article: раздела Required у типа нет — «к сведению» low, а не «нет обязательных»
         row = rows_for(self.r, "markup.req_article")[0]
-        self.assertEqual(row["status"], "warn")
-        self.assertEqual(row["severity"], "low")
+        self.assertEqual(row["status"], "info")
+        self.assertEqual(row["severity"], "info")
         self.assertNotIn("обязательн", row["observation"].lower())
         # FAQPage: документация Google снята, строение судим по словарю schema.org — это low
         row = rows_for(self.r, "markup.req_faqpage")[0]
-        self.assertEqual(row["status"], "warn")
-        self.assertEqual(row["severity"], "low")
+        self.assertEqual(row["status"], "info")   # FAQ-сниппет снят: чинить ради выдачи нечего
+        self.assertEqual(row["severity"], "info")
         self.assertIn("name у 1 вопроса", row["observation"])
         self.assertNotIn("обязательн", row["observation"].lower())
         self.expect("markup.req_localbusiness", "fail")  # нет address
@@ -176,7 +176,7 @@ class BrokenPageTest(unittest.TestCase):
 
     def test_retired_type_quotes_the_dated_fact(self):
         rows = rows_for(self.r, "markup.retired_type")
-        self.assertEqual(rows[0]["status"], "warn")
+        self.assertEqual(rows[0]["status"], "info", "разметка не вредит — чинить нечего")
         self.assertIn("07.05.2026", rows[0]["observation"])
 
     def test_values_not_on_the_page(self):
@@ -203,8 +203,8 @@ class TypeRuleTest(unittest.TestCase):
                                    "offers": {"@type": "Offer", "price": 1, "priceCurrency": "RUB"},
                                    "performer": {"@type": "Person", "name": "А"},
                                    "image": "https://a.test/i.png"}))
-        self.assertEqual(status_of(r, "markup.req_event"), "warn")  # нет description
-        self.assertEqual(rows_for(r, "markup.req_event")[0]["severity"], "low")
+        self.assertEqual(status_of(r, "markup.req_event"), "info")  # нет description
+        self.assertEqual(rows_for(r, "markup.req_event")[0]["severity"], "info")
 
     def test_event_place_without_address_fails(self):
         r = check_jsonld(self.ctx({"@type": "Event", "name": "n", "startDate": "2026-12-01",
@@ -218,8 +218,8 @@ class TypeRuleTest(unittest.TestCase):
         bad = check_jsonld(self.ctx(base))
         self.assertEqual(status_of(bad, "markup.req_jobposting"), "fail")
         ok = check_jsonld(self.ctx(dict(base, jobLocationType="TELECOMMUTE")))
-        self.assertEqual(status_of(ok, "markup.req_jobposting"), "warn")  # остались рекомендуемые
-        self.assertEqual(rows_for(ok, "markup.req_jobposting")[0]["severity"], "low")
+        self.assertEqual(status_of(ok, "markup.req_jobposting"), "info")  # остались рекомендуемые
+        self.assertEqual(rows_for(ok, "markup.req_jobposting")[0]["severity"], "info")
 
     def test_website_searchaction_has_no_requirements_any_more(self):
         """29.11.2024 документация снята, функция в выдаче не показывается: судить нечем."""
@@ -266,9 +266,11 @@ class TypeRuleTest(unittest.TestCase):
         """Required у Google один — isAccessibleForFree; hasPart с cssSelector рекомендуемый."""
         no_part = check_jsonld(self.ctx({"@type": "WebPage", "isAccessibleForFree": False}))
         row = rows_for(no_part, "markup.req_paywall")[0]
-        self.assertEqual(row["status"], "warn")
-        self.assertEqual(row["severity"], "low")
+        self.assertEqual(row["status"], "info")
+        self.assertEqual(row["severity"], "info")
         self.assertIn("cssSelector", row["observation"])
+        free = check_jsonld(self.ctx({"@type": "WebPage", "isAccessibleForFree": True}))
+        self.assertEqual(rows_for(free, "markup.req_paywall"), [], "бесплатная страница — не пейвол")
         ok = check_jsonld(self.ctx({"@type": "WebPage", "isAccessibleForFree": False,
                                     "hasPart": {"@type": "WebPageElement",
                                                 "isAccessibleForFree": False,
@@ -287,7 +289,7 @@ class TypeRuleTest(unittest.TestCase):
                                    "aggregateRating": {"@type": "AggregateRating", "ratingValue": 4,
                                                        "ratingCount": 2}}))
         self.assertEqual(rows_for(r, "markup.req_offer"), [])
-        self.assertEqual(status_of(r, "markup.req_product"), "warn")   # нет рекомендуемых
+        self.assertEqual(status_of(r, "markup.req_product"), "info")   # нет рекомендуемых
 
     def test_offer_price_zero_fails(self):
         r = check_jsonld(self.ctx({"@type": "Product", "name": "n", "image": "https://a.test/i.png",
@@ -300,9 +302,38 @@ class TypeRuleTest(unittest.TestCase):
                                    "offers": {"@type": "Offer", "price": 1, "priceCurrency": "USD"},
                                    "image": "https://a.test/i.png"}))
         row = rows_for(r, "markup.req_product")[0]
-        self.assertEqual(row["status"], "warn")
-        self.assertEqual(row["severity"], "low")
+        self.assertEqual(row["status"], "info", "только рекомендуемые — не в очередь починки")
+        self.assertEqual(row["severity"], "info")
         self.assertIn("не требование", row["note"])
+
+    def test_plain_service_is_not_a_local_business(self):
+        r = check_jsonld(self.ctx({"@type": "Service", "name": "SEO-аудит"}))
+        self.assertEqual(rows_for(r, "markup.req_localbusiness"), [])
+        fin = check_jsonld(self.ctx({"@type": "FinancialService", "name": "Банк"}))
+        self.assertEqual(status_of(fin, "markup.req_localbusiness"), "fail")
+
+    def test_repeated_reference_node_is_not_a_duplicate_id(self):
+        org = {"@id": "https://a.test/#org", "@type": "Organization", "name": "A", "url": "https://a.test/"}
+        same = check_jsonld({"@context": "https://schema.org", "@type": "Article", "headline": "h",
+                             "author": dict(org), "publisher": dict(org)})
+        self.assertEqual(status_of(same, "markup.id_duplicate"), "pass")
+        partial = check_jsonld({"@context": "https://schema.org", "@type": "Article", "headline": "h",
+                                "author": dict(org),
+                                "isPartOf": {"@id": "https://a.test/#org", "@type": "Organization"}})
+        self.assertEqual(status_of(partial, "markup.id_duplicate"), "pass", "узел без name не спорит")
+        clash = check_jsonld({"@context": "https://schema.org", "@type": "Article", "headline": "h",
+                              "author": dict(org), "publisher": dict(org, name="B")})
+        self.assertEqual(status_of(clash, "markup.id_duplicate"), "fail")
+
+    def test_is_based_on_is_not_the_main_article(self):
+        r = check_jsonld({"@context": "https://schema.org", "@type": "NewsArticle", "headline": "h",
+                          "url": "https://a.test/n", "image": "https://a.test/i.png",
+                          "datePublished": "2026-10-01", "dateModified": "2026-10-01",
+                          "author": {"@type": "Person", "name": "A", "url": "https://a.test/a"},
+                          "isBasedOn": {"@type": "NewsArticle", "url": "https://other.test/x"}},
+                         canonical="https://a.test/n")
+        notes = [x["observation"] for x in rows_for(r, "markup.url_vs_canonical")]
+        self.assertFalse(any("разные" in n for n in notes), notes)
 
     def test_localbusiness_subtype_counts(self):
         r = check_jsonld(self.ctx({"@type": "CafeOrCoffeeShop", "name": "n"}))
@@ -435,15 +466,16 @@ class NestedRoleTest(unittest.TestCase):
     def test_the_real_cause_is_still_found(self):
         r = check_jsonld(self.HABR, visible="Статья 2026-10-20")
         rows = [x for x in r["checks"] if x["status"] in ("fail", "warn")]
-        self.assertEqual(len(rows), 2, [(x["id"], x["observation"]) for x in rows])
+        self.assertEqual(len(rows), 1, [(x["id"], x["observation"]) for x in rows])
         ids = {x["id"] for x in rows}
         self.assertIn("markup.placeholders", ids)   # author.name = null
-        self.assertIn("markup.req_article", ids)
+        # Required у Article в документации Google нет: нехватка рекомендуемых — к сведению
+        self.assertEqual(status_of(r, "markup.req_article"), "info")
 
     def test_a_standalone_organization_is_still_judged(self):
         r = check_jsonld({"@context": "https://schema.org", "@graph": [
             {"@type": "Organization", "name": "Издание"}]})
-        self.assertEqual(status_of(r, "markup.req_organization"), "warn")
+        self.assertEqual(status_of(r, "markup.req_organization"), "info")
 
     def test_nested_author_is_not_judged_as_a_person(self):
         r = check_jsonld(self.HABR, visible="Статья")

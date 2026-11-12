@@ -302,6 +302,26 @@ class FetchTest(unittest.TestCase):
         self.assertIn("content-security-policy", sh)
         self.assertNotIn("x-secret-internal", sh)
 
+    def test_asks_for_gzip_and_unpacks_it(self):
+        body = "<html>" + "сжатие " * 2000 + "</html>"
+        self.server.routes["/gz"] = Route(200, ls.gzip_bytes(body.encode()),
+                                          {"Content-Encoding": "gzip", "Content-Type": "text/html"})
+        r = self.f.fetch(self.url("/gz"))
+        self.assertEqual(self.server.requests[-1]["headers"]["accept-encoding"], hs.ACCEPT_ENCODING)
+        self.assertEqual(r.text(), body)
+        self.assertEqual(r.headers["content-encoding"], "gzip")
+
+    def test_ttfb_and_elapsed_exclude_the_pause(self):
+        import time as _t
+        self.server.routes["/t"] = Route(200, "ok")
+        f = hs.Fetcher(delay=2.0, allow_local=True, shared_pace=False, sleep=lambda s: _t.sleep(0.4))
+        f.fetch(self.url("/t"))
+        r = f.fetch(self.url("/t"))
+        self.assertGreater(f.waited_s, 0, "пауза была")
+        self.assertLess(r.ttfb_ms, 300, "TTFB без паузы вежливости")
+        self.assertLess(r.elapsed_ms, 300, "время запроса без паузы вежливости")
+        self.assertIn("ttfb_ms", r.to_json())
+
 
 class HelpersTest(unittest.TestCase):
     def test_safe_out_path_traversal(self):

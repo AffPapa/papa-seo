@@ -782,14 +782,15 @@ class PageParser(HTMLParser):
                 self.fragment_links.append({"frag": href[1:], "line": line, "region": self._region()})
             if attrs.get("name"):
                 self.anchor_names.add(attrs["name"].strip())
-            if self._pagination_stack:
-                self._pagination_stack[-1]["anchors" if href and not href.startswith("#") else "buttons"] += 1
+            # #якорь — переход внутри страницы, не кнопка без адреса и не ссылка на страницу N
+            if self._pagination_stack and not href.startswith("#"):
+                self._pagination_stack[-1]["anchors" if href else "buttons"] += 1
         elif tag == "button" and self._pagination_stack:
             self._pagination_stack[-1]["buttons"] += 1
         if tag in ("nav", "div", "ul", "ol", "span", "section", "p"):
             toks = _attr_tokens(attrs.get("class")) | _attr_tokens(attrs.get("id"))
             aria = (attrs.get("aria-label") or "").lower()
-            if toks & PAGINATION_TOKENS or "pagin" in aria or "страниц" in aria:
+            if toks & PAGINATION_TOKENS or "pagin" in aria or _PAGINATION_ARIA_RU.search(aria):
                 self._pagination_stack.append({"tag": tag, "line": line, "anchors": 0, "buttons": 0,
                                                "depth": len(self.stack)})
 
@@ -1192,11 +1193,21 @@ def _same_url(a: str | None, b: str | None) -> bool:
     return norm(pa) == norm(pb)
 
 
+# aria-label блока пагинации по-русски. Подстрока «страниц» ловила «Разделы страницы»
+# (оглавление): нужно само слово «пагинация» или «страницы/страниц» как навигация по ним.
+_PAGINATION_ARIA_RU = re.compile(r"пагинац|(?:навигаци\w*|переход\w*)\s+по\s+страниц|^\s*страниц[аы]?\s*$")
+
+
 def visible_text(html: str, url: str | None = None, *, limit: int = 20000) -> dict:
     """Visible text of <main>/<article>/role=main, or of <body> if there is none. Untrusted data."""
     parser = PageParser(url)
     parser.feed(html)
     parser.close()
+    return visible_text_of(parser, limit=limit)
+
+
+def visible_text_of(parser: "PageParser", *, limit: int = 20000) -> dict:
+    """visible_text() from a parser that has already read the page: no second parse."""
     parts = parser.main_text if parser.main_found else parser.visible_text
     text = re.sub(r"\s+", " ", " ".join(parts)).strip()
     return {"scope": "main" if parser.main_found else "body", "chars": len(text),
@@ -2461,6 +2472,7 @@ LANG_SCRIPT = {
     "el": "greek", "hi": "devanagari", "mr": "devanagari", "ne": "devanagari",
     "zh": "cjk", "ja": "cjk", "ko": "hangul", "th": "thai", "hy": "armenian", "ka": "georgian",
 }
+COMPRESSION_MIN_BYTES = 1024  # меньше килобайта сжимать незачем: экономия меньше заголовков
 TTFB_GOOD_MS = 800     # web.dev «TTFB»: <= 0,8 с хорошо, > 1,8 с плохо; в CWV не входит
 TTFB_POOR_MS = 1800
 DOM_SIZE_GUIDE = 1500  # ориентир редактора: у Google порога нет
@@ -2483,6 +2495,13 @@ def _script_of(text: str) -> str | None:
         return None
     name, n = counts.most_common(1)[0]
     return name if n / len(letters) > 0.5 else None
+
+
+def _n_int(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _header_hreflang(link_header: str) -> set:
@@ -2518,9 +2537,18 @@ def doc_and_header_checks(ck: _Checks, parser: PageParser, headers: dict, fetch:
             ck.add(cid, "skip", "Заголовков ответа нет: разбирается файл, а не живой ответ")
     else:
         enc = (headers.get("content-encoding") or "").strip().lower()
-        ck.add("speed.compression", "pass" if enc else "warn",
-               f"Content-Encoding: {enc}" if enc else "HTML отдан без сжатия (нет Content-Encoding)",
-               evidence=enc or None)
+        if enc and enc != "identity":
+            ck.add("speed.compression", "pass", f"Content-Encoding: {enc}", evidence=enc)
+        elif not fetch:
+            # Заголовки есть, а запроса нашего не было (переданы извне): что просили — неизвестно.
+            ck.add("speed.compression", "skip", "Неизвестно, какое сжатие запрашивалось")
+        elif _n_int(fetch.get("bytes")) < COMPRESSION_MIN_BYTES:
+            ck.add("speed.compression", "info",
+                   f"Документ {fetch.get('bytes')} байт — такой маленький сервер вправе не сжимать")
+        else:
+            ck.add("speed.compression", "warn",
+                   f"На запрос с Accept-Encoding: {http_safe.ACCEPT_ENCODING} сервер ответил "
+                   "без сжатия (нет Content-Encoding)", evidence=f"Accept-Encoding: {http_safe.ACCEPT_ENCODING}")
         cache = {k: headers[k] for k in ("cache-control", "expires", "etag", "last-modified")
                  if headers.get(k)}
         ck.add("speed.cache_control", "pass" if cache else "warn",
@@ -2540,12 +2568,22 @@ def doc_and_header_checks(ck: _Checks, parser: PageParser, headers: dict, fetch:
         for cid in ("speed.ttfb", "speed.redirect_before_page", "security.tls_chain_ok"):
             ck.add(cid, "skip", "Данных запроса нет: разбирается файл, а не живой ответ")
     else:
-        ms = fetch.get("elapsed_ms")
+        # ttfb_ms — до первого байта последнего шага, без паузы вежливости и без редиректов
+        # (они — отдельный параметр ниже). Раньше бралось elapsed_ms: пауза 2 с + вся цепочка
+        # + загрузка тела, и «TTFB 2232 мс» выходил у сайта, который отвечает за 80 мс.
+        ms = fetch.get("ttfb_ms")
+        if ms is None:
+            ms = fetch.get("elapsed_ms")
         if ms is None:
             ck.add("speed.ttfb", "skip", "Время ответа в данных запроса не пришло")
         else:
             status = "pass" if ms <= TTFB_GOOD_MS else ("fail" if ms > TTFB_POOR_MS else "warn")
-            ck.add("speed.ttfb", status, f"Ответ за {ms} мс (один замер)", value=ms,
+            # Промах кэша CDN меняет смысл числа: это время самого сервера, а не CDN.
+            cdn = next((f"{k}: {headers[k]}" for k in ("cf-cache-status", "x-cache", "x-cache-status",
+                                                        "x-vercel-cache") if (headers or {}).get(k)), "")
+            cdn_note = f"; кэш CDN — {cdn}" if cdn else ""
+            ck.add("speed.ttfb", status, f"Первый байт ответа за {ms} мс (один замер{cdn_note})",
+                   value=ms,
                    note="Один замер — не метрика: ориентир web.dev ≤ 800 мс / > 1800 мс плохо, "
                         "и TTFB в Core Web Vitals не входит")
         # В chain лежит и сам итоговый ответ, поэтому «нет редиректов» — это chain длиной 1.
@@ -2704,13 +2742,18 @@ def doc_and_header_checks(ck: _Checks, parser: PageParser, headers: dict, fetch:
 
 def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_file",
                  headers: dict | None = None, list_limits: bool = True,
-                 doc_bytes: int | None = None, fetch: dict | None = None) -> dict:
+                 doc_bytes: int | None = None, fetch: dict | None = None,
+                 parsed: dict | None = None) -> dict:
+    """Facts of one page. `parsed`, if given, receives the parser ("parser") so a caller that
+    also needs the visible text takes it with visible_text_of() instead of parsing again."""
     parser = PageParser(url)
     try:
         parser.feed(html)
         parser.close()
     except (AssertionError, ValueError, RecursionError) as exc:  # html.parser is lenient; be safe
         return {"error": f"HTML parse failed: {exc}", "code": "parse_failed"}
+    if parsed is not None:
+        parsed["parser"] = parser
     base = parser.base_href or url
     headers = headers or {}
     findings: list[dict] = []

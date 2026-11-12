@@ -1,5 +1,5 @@
 {
- "$id": "urn:papa-seo:registry:0.2.1",
+ "$id": "urn:papa-seo:registry:0.2.2",
  "version": "0.2.2",
  "generated": "2026-10-30",
  "about": "Реестр параметров проверки сайта для papa-seo. Контракт между модулями и скриптами: audit.py собирает проверки по этому файлу. Поля: id (устойчивый, group.short_name), group, title, what, how (детерминированный рецепт), inputs, scope, deterministic, signal, severity, engine, source, source_kind, status, covered_by.",

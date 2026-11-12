@@ -181,8 +181,12 @@ REQ_RULES: list[dict] = [
      "source": _gsd("JobPosting", "job-posting")},
     {"id": "markup.req_localbusiness", "title": "LocalBusiness", "types": {"LocalBusiness"},
      # подтипы LocalBusiness в schema.org исчисляются сотнями: берём распространённые окончания
+     # «Service» как суффикс ловил обычный schema.org Service (услуга, не место), поэтому
+     # сервисные подтипы LocalBusiness перечислены поимённо.
      "types_suffix": ("Business", "Store", "Shop", "Restaurant", "Hotel", "Clinic", "Agency",
-                      "Market", "Bar", "Cafe", "Salon", "Gym", "Pharmacy", "Dealer", "Service"),
+                      "Market", "Bar", "Cafe", "Salon", "Gym", "Pharmacy", "Dealer"),
+     "types_extra": {"FinancialService", "EmergencyService", "FoodService", "HomeAndConstructionBusiness",
+                     "EmploymentAgency", "TravelAgency", "RealEstateAgent", "AutomotiveBusiness"},
      "doc_required": True, "required": ["name", "address"],
      "recommended": ["telephone", "openingHoursSpecification", "geo", "url", "priceRange",
                      "aggregateRating", "review", "department"],
@@ -287,7 +291,7 @@ YANDEX_SUPPORTED = {
 
 # «Снято» — по facts-2026 §6 с датами. Своих дат не придумываем.
 RETIRED = {
-    "FAQPage": "FAQ rich result объявлен 08.05.2026, не показывается с 07.05.2026, документация снята "
+    "FAQPage": "FAQ rich result: вывод объявлен 08.05.2026, не показывается с 07.05.2026, документация снята "
                "15.06.2026. Разметка не вредит, но карточек в выдаче не даёт.",
     "HowTo": "HowTo: с 13.09.2023 не показывается.",
     "ClaimReview": "Объявлен вывод 12.06.2025, снят из отчётов 09.09.2025.",
@@ -489,6 +493,9 @@ ROLE_PROPS = {
     "employee", "member", "sponsor", "translator", "editor", "contributor", "manufacturer",
     "vendor", "broker", "customer", "recipient", "accountablePerson", "director", "actor",
     "musicBy", "producer", "character", "itemReviewed", "about", "mentions", "citation",
+    # чужое произведение внутри нашего: источник, часть, пример — не основная сущность страницы
+    "isBasedOn", "isPartOf", "subjectOf", "workExample", "exampleOfWork", "translationOfWork",
+    "sameAs", "relatedLink", "significantLink",
 }
 # вложенные Review и AggregateRating: документация Google не требует у них itemReviewed
 NESTED_RATING_VIA = {"review", "aggregateRating", "reviews"}
@@ -664,6 +671,12 @@ def _special(key: str, node: dict, via: str | None = None) -> list[str]:
     return []
 
 
+def _is_false(value) -> bool:
+    if isinstance(value, bool):
+        return value is False
+    return isinstance(value, str) and value.strip().lower().rsplit("/", 1)[-1] in ("false", "0")
+
+
 def _rule_applies(rule: dict, node: dict, types: list, via: str | None) -> bool:
     if via in ROLE_PROPS and not (rule["id"] == "markup.req_review"
                                   and {"Review", "AggregateRating"} & set(types)):
@@ -671,7 +684,7 @@ def _rule_applies(rule: dict, node: dict, types: list, via: str | None) -> bool:
     tset = set(types)
     if rule.get("skip_types") and tset & rule["skip_types"]:
         return False
-    hit = bool(tset & rule["types"])
+    hit = bool(tset & (rule["types"] | rule.get("types_extra", set())))
     if not hit and rule.get("types_suffix"):
         hit = any(t.endswith(rule["types_suffix"]) for t in types)
     when = rule.get("when")
@@ -686,7 +699,9 @@ def _rule_applies(rule: dict, node: dict, types: list, via: str | None) -> bool:
     if when == "has_speakable":
         return _present(node, "speakable")
     if when == "has_paywall":
-        return "isAccessibleForFree" in node
+        # Правило про платный контент; isAccessibleForFree: true — страница бесплатная,
+        # требовать от неё разметки пейвола нечего.
+        return _is_false(node.get("isAccessibleForFree"))
     return hit
 
 
@@ -706,7 +721,7 @@ def _missing(entries, node: dict, via: str | None) -> list[str]:
                 out.append(f"{entry[1]}.{entry[2]}")
         elif entry[0] == "special":
             out.extend(_special(entry[1], node, via))
-    return out
+    return list(dict.fromkeys(out))  # одно свойство из двух правил — один раз
 
 
 def _required_checks(rows: Rows, node: dict, types: list, label: str, via: str | None = None):
@@ -734,8 +749,10 @@ def _required_checks(rows: Rows, node: dict, types: list, label: str, via: str |
                      f"{rule['title']}: документация Google требует, на странице нет — "
                      + "; ".join(missing), entity=label,
                      value={"missing_required": missing, "missing_recommended": soft}, note=note)
+        # Не хватает только рекомендуемых — это не нарушение: строка «к сведению», в очередь
+        # «чинить первым» она не идёт.
         elif soft and not hard:
-            rows.add(rule["id"], "warn",
+            rows.add(rule["id"], "info",
                      f"{rule['title']}: Google перечисляет как рекомендуемые, на странице нет — "
                      + ", ".join(soft), entity=label, severity="low",
                      value={"missing_recommended": soft},
@@ -743,7 +760,7 @@ def _required_checks(rows: Rows, node: dict, types: list, label: str, via: str |
                      + "Раздела Required у этого типа в документации Google нет: отсутствие "
                        "свойства не нарушает требования")
         elif soft:
-            rows.add(rule["id"], "warn",
+            rows.add(rule["id"], "info",
                      f"{rule['title']}: документация Google требует всё, что нужно; из "
                      f"рекомендуемых нет — " + ", ".join(soft), entity=label, severity="low",
                      value={"missing_recommended": soft},
@@ -762,7 +779,7 @@ def _required_checks(rows: Rows, node: dict, types: list, label: str, via: str |
 
 # ------------------------------------------------------------------------------- проверка сущности
 
-def check_entity(rows: Rows, ent: dict, ids_seen: Counter, refs: list, canonical: str | None):
+def check_entity(rows: Rows, ent: dict, ids_seen: dict, refs: list, canonical: str | None):
     node, path, types = ent["node"], ent["path"], ent["types"]
     via = ent.get("via")
     label = (types[0] if types else "?") + " @ " + path
@@ -888,7 +905,10 @@ def check_entity(rows: Rows, ent: dict, ids_seen: Counter, refs: list, canonical
         if len(node) <= 1:
             refs.append((oid.strip(), path))
         else:
-            ids_seen[oid.strip()] += 1
+            # Один узел, повторённый в author и publisher, — штатный JSON-LD: узлы с одним
+            # @id сливаются. Дублем считаем только противоречие: другой @type или name.
+            name = node.get("name") if isinstance(node.get("name"), str) else None
+            ids_seen.setdefault(oid.strip(), set()).add((tuple(sorted(types)), (name or "").strip()))
 
 
 # Типографика: в разметке и в видимом тексте одно и то же слово часто набрано разными
@@ -1035,7 +1055,7 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
                        else f"@context на schema.org во всех {ctx_total} блоках"),
                  value=ctx_bad[:10] or None)
 
-    ids_seen: Counter = Counter()
+    ids_seen: dict[str, set] = {}
     refs: list = []
     typed = [e for e in entities[:MAX_ENTITIES] if e["types"]]
     for ent in entities[:MAX_ENTITIES]:
@@ -1051,9 +1071,12 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
                      ("markup.sd_self_serving", "Отзывов о себе в разметке нет")):
         if typed and not any(r["id"] == cid for r in rows.rows):
             rows.add(cid, "pass", msg)
-    dup_ids = {k: v for k, v in ids_seen.items() if v > 1}
+    # Противоречие — разные @type или разные непустые name; узел без name (ссылка с типом,
+    # `isPartOf: {"@id": "#website", "@type": "WebSite"}`) с полным узлом не спорит.
+    dup_ids = {k: v for k, v in ids_seen.items()
+               if len({t for t, _ in v}) > 1 or len({n for _, n in v if n}) > 1}
     rows.add("markup.id_duplicate", "fail" if dup_ids else ("pass" if ids_seen else "skip"),
-             f"Повторяются @id: {len(dup_ids)}" if dup_ids
+             f"Один @id у разных по смыслу узлов (другой @type или name): {len(dup_ids)}" if dup_ids
              else ("Единственный @id уникален" if len(ids_seen) == 1
                    else (f"Все {len(ids_seen)} @id уникальны" if ids_seen else "@id не используются")),
              value=sorted(dup_ids)[:10] or None)
@@ -1089,7 +1112,7 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
                       "поддерживает — FAQ-сниппет в Яндексе не обещать")
     retired = sorted({t: RETIRED[t] for t in type_counts if t in RETIRED}.items())
     if retired:
-        rows.add("markup.retired_type", "warn",
+        rows.add("markup.retired_type", "info",
                  "; ".join(f"{t}: {why}" for t, why in retired), value=[t for t, _ in retired],
                  note="Разметка не вредит — не обещайте по ней карточку в выдаче")
     else:

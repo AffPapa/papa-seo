@@ -22,7 +22,7 @@ import sys
 import zlib
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 from xml.etree import ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

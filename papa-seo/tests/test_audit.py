@@ -46,6 +46,15 @@ def audit_file(path, **kw):
     return au.audit_page(path, fetcher=None, **kw)
 
 
+def _read_text(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _read_json(path):
+    return json.loads(_read_text(path))
+
+
 def rows_by_id(page):
     return {r["id"]: r for r in page["rows"]}
 
@@ -556,9 +565,6 @@ class TestSummary(unittest.TestCase):
         self.assertFalse(re.search(r"[​-‏‪-‮⁠-⁤﻿]", blob))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestSchemaAdapter(unittest.TestCase):
     """schema_check может появиться или не появиться — отчёт должен быть честным в обоих случаях."""
@@ -617,7 +623,7 @@ class TestGroupsFromRegistry(unittest.TestCase):
                               requests_made=0)
         shown = [g["group"] for g in rep["pages"][0]["groups"]]
         want = [g for g in (x["id"] for x in
-                            json.load(open(reg["source"], encoding="utf-8"))["groups"])
+                            _read_json(reg["source"])["groups"])
                 if g in shown]
         self.assertEqual(shown, want, "порядок групп — как в реестре")
         titles = {g["group"]: g["title"] for g in rep["pages"][0]["groups"]}
@@ -779,7 +785,7 @@ class TestNotHtml(unittest.TestCase):
         for name in ("basic_page.html", "audit_hostile.html", "csr_page.html", "zero_width.html"):
             path = os.path.join(FIXTURES, name)
             if os.path.exists(path):
-                au.html_or_refuse(open(path, encoding="utf-8").read(), content_type="text/html",
+                au.html_or_refuse(_read_text(path), content_type="text/html",
                                   source=name)
 
 
@@ -995,3 +1001,220 @@ class TestSiteReport(unittest.TestCase):
 def urlsplit_path(url):
     from urllib.parse import urlsplit as _us
     return _us(url).path
+
+
+class TestSiteCli(unittest.TestCase):
+    """--site целиком через CLI: сколько запросов уходит на сайт и что попадает в очередь.
+
+    Fetcher подменяется через au.make_fetcher: пауза 2 с остаётся в силе, но вместо сна
+    записывается — так видно, что между каждыми двумя запросами она была, и тест не ждёт."""
+
+    def setUp(self):
+        self.sleeps = []
+        self.saved = au.make_fetcher
+
+        def fake(*, delay, state_dir):
+            return au.http_safe.Fetcher(delay=delay, allow_local=True, sleep=self.sleeps.append,
+                                        shared_pace=False)
+        au.make_fetcher = fake
+
+    def tearDown(self):
+        au.make_fetcher = self.saved
+
+    def _site(self, base, children=6, per_child=4, index=True):
+        with open(BASIC, encoding="utf-8") as fh:
+            html = fh.read()
+        html_route = Route(200, html, {"Content-Type": "text/html; charset=utf-8"})
+        routes = {"/": html_route}
+        urlset = lambda locs: ('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/'
+                               'sitemap/0.9">' + "".join(f"<url><loc>{u}</loc></url>" for u in locs)
+                               + "</urlset>")
+        child_urls = []
+        for c in range(children):
+            locs = [f"{base}/sec{c}/{i}" for i in range(per_child)]
+            for u in locs:
+                routes[urlsplit_path(u)] = html_route
+            routes[f"/sm-{c}.xml"] = Route(200, urlset(locs), {"Content-Type": "application/xml"})
+            child_urls.append(f"{base}/sm-{c}.xml")
+        if index:
+            body = ('<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                    + "".join(f"<sitemap><loc>{u}</loc></sitemap>" for u in child_urls)
+                    + "</sitemapindex>")
+            routes["/sitemap.xml"] = Route(200, body, {"Content-Type": "application/xml"})
+        routes["/robots.txt"] = Route(200, f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n",
+                                      {"Content-Type": "text/plain"})
+        return routes
+
+    def _run(self, srv, *extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "r.json")
+            rc, _ = run_cli(["--site", srv.base, "--json", out, "--quiet", *extra])
+            self.assertEqual(rc, 0)
+            with open(out, encoding="utf-8") as fh:
+                return json.load(fh)
+
+    def test_site_requests_are_counted_and_paced(self):
+        with LocalServer({}) as srv:
+            srv.routes = self._site(srv.base)
+            rep = self._run(srv, "--limit", "5")
+            paths = [r["path"] for r in srv.requests]
+        # robots + индекс + две дочерние карты (по две страницы выборки на карту) + 5 страниц
+        self.assertEqual(paths.count("/robots.txt"), 1)
+        self.assertEqual(paths.count("/sitemap.xml"), 1)
+        self.assertEqual(sum(1 for p in paths if p.startswith("/sm-")), au.children_budget(5))
+        self.assertEqual(len(paths), 1 + 1 + au.children_budget(5) + 5)
+        self.assertEqual(rep["requests"]["count"], len(paths))
+        pages = [p for p in paths if not p.endswith((".txt", ".xml"))]
+        self.assertEqual(len(pages), len(set(pages)), "ни одна страница не скачана дважды")
+        self.assertEqual(len(self.sleeps), len(paths) - 1, "пауза перед каждым запросом, кроме первого")
+        self.assertTrue(all(0 < s <= 2.0 for s in self.sleeps))
+
+    def test_children_are_spread_across_the_index(self):
+        with LocalServer({}) as srv:
+            srv.routes = self._site(srv.base, children=10, per_child=2)
+            self._run(srv, "--limit", "5")
+            maps = [r["path"] for r in srv.requests if r["path"].startswith("/sm-")]
+        self.assertEqual(len(maps), 2)
+        self.assertNotEqual(maps, ["/sm-0.xml", "/sm-1.xml"], "не первые подряд, а вразбивку")
+
+    def test_queue_has_no_duplicates_and_counts_pages(self):
+        with LocalServer({}) as srv:
+            srv.routes = self._site(srv.base)
+            rep = self._run(srv, "--limit", "4")
+        ids = [i["id"] for i in rep["fix_first"]]
+        self.assertEqual(len(ids), len(set(ids)), "одна находка — одна строка очереди")
+        self.assertTrue(rep["recurring"])
+        for a in rep["recurring"]:
+            self.assertEqual(a["count"], len(a["pages"]))
+            self.assertGreaterEqual(a["count"], 2)
+        keys = [au.queue_key(i) for i in rep["fix_first"]]
+        self.assertEqual(keys, sorted(keys), "очередь отсортирована по тяжести × охвату")
+
+    def test_sitemap_flag_reuses_the_downloaded_map(self):
+        with LocalServer({}) as srv:
+            srv.routes = self._site(srv.base, children=2, per_child=2)
+            self._run(srv, "--limit", "3", "--sitemap")
+            paths = [r["path"] for r in srv.requests]
+        self.assertEqual(paths.count("/sitemap.xml"), 1, "карту сайта второй раз не качаем")
+
+    def test_single_404_exits_non_zero_but_writes_the_report(self):
+        with LocalServer({"/gone": Route(404, "<html><body><p>нет</p></body></html>",
+                                         {"Content-Type": "text/html; charset=utf-8"}),
+                          "/robots.txt": Route(404, "no")}) as srv:
+            with tempfile.TemporaryDirectory() as tmp:
+                out = os.path.join(tmp, "r.json")
+                rc, _ = run_cli([srv.base + "/gone", "--json", out, "--quiet"])
+                rep = _read_json(out)
+        self.assertEqual(rc, au.EXIT_PAGE_NOT_OK)
+        self.assertIn("Блокирует", rep["verdict"])
+
+    def test_verdict_is_there_without_blocking(self):
+        with LocalServer({}) as srv:
+            srv.routes = self._site(srv.base, children=1, per_child=2)
+            rep = self._run(srv, "--limit", "2")
+        self.assertIn("Блокирующих условий нет", rep["verdict"])
+
+    def test_homepage_fallback_fetches_home_once(self):
+        html = ('<html><head><title>Home</title></head><body><main><p>Главная страница сайта.</p>'
+                '<a href="/about">about</a><a href="/blog/1">b1</a></main></body></html>')
+        page = Route(200, html, {"Content-Type": "text/html; charset=utf-8"})
+        with LocalServer({"/": page, "/about": page, "/blog/1": page,
+                          "/robots.txt": Route(404, "no"), "/sitemap.xml": Route(404, "no")}) as srv:
+            rep = self._run(srv, "--limit", "3")
+            paths = [r["path"] for r in srv.requests]
+        self.assertEqual(rep["site_scan"]["source"], "homepage")
+        self.assertEqual(paths.count("/"), 1, "главная и для ссылок, и для аудита — один запрос")
+
+
+class TestQueueOrder(unittest.TestCase):
+    """«Чинить первым»: блокирующее сверху, дальше тяжесть × охват, ориентиры редактора — после."""
+
+    def _row(self, cid, severity, *, editor=False, blocking=False):
+        row = {"id": cid, "title": cid, "group": "meta", "group_title": "Мета", "severity": severity,
+               "verdict": au.WARN, "editor_guideline": editor}
+        if blocking:
+            row["blocking_text"] = "x"
+        return row
+
+    def test_reach_lifts_a_template_finding(self):
+        per_page = [(f"p{i}", [self._row("tpl", "medium")]) for i in range(4)]
+        per_page[0][1].append(self._row("single", "high"))
+        order = [a["id"] for a in au.aggregate_findings(per_page)]
+        self.assertEqual(order, ["tpl", "single"], "medium на 4 страницах (12) выше high на одной (9)")
+
+    def test_editor_guidelines_go_last_and_blocking_first(self):
+        per_page = [(f"p{i}", [self._row("ed", "high", editor=True), self._row("low", "low")])
+                    for i in range(5)]
+        per_page[0][1].append(self._row("gone", "critical", blocking=True))
+        order = [a["id"] for a in au.aggregate_findings(per_page)]
+        self.assertEqual(order, ["gone", "low", "ed"])
+
+    def test_language_prefix_does_not_swallow_the_sample(self):
+        self.assertEqual(au._first_segment("https://s.ru/en/news/1"), "en/news")
+        self.assertEqual(au._first_segment("https://s.ru/en/about"), "en")
+        self.assertEqual(au._first_segment("https://s.ru/blog/1"), "blog")
+
+    def test_sample_prefers_big_path_types(self):
+        urls = ([f"https://s.ru/a{i}" for i in range(3)]
+                + [f"https://s.ru/big/{i}" for i in range(50)]
+                + [f"https://s.ru/zz/{i}" for i in range(30)])
+        picked = au.sample_site_urls(urls, 3, home="https://s.ru/")
+        self.assertEqual([au._first_segment(u) for u in picked[1:]], ["big", "zz"])
+
+
+
+class TestBrief(unittest.TestCase):
+    """--brief: агенту — только находки, несколько КБ, в порядке очереди."""
+
+    def test_brief_is_small_and_ordered(self):
+        rc, out = run_cli([HOSTILE, "--base-url", "https://example.net/remont/", "--brief", "--no-robots"])
+        self.assertEqual(rc, 0)
+        self.assertLess(len(out.encode("utf-8")), 20000)
+        data = json.loads(out)
+        self.assertEqual(data["mode"], "brief")
+        self.assertTrue(data["verdict"])
+        self.assertTrue(data["findings"])
+        for item in data["findings"]:
+            self.assertTrue({"id", "title", "severity", "verdict"} <= set(item))
+            self.assertIn(item["verdict"], (au.BAD, au.WARN))
+        flags = [bool(i.get("editor_guideline")) for i in data["findings"]]
+        self.assertEqual(flags, sorted(flags), "ориентиры редактора — после требований")
+
+    def test_brief_and_json_stdout_conflict(self):
+        rc, out = run_cli([HOSTILE, "--brief", "--json", "-"])
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(json.loads(out)["code"], "bad_arguments")
+
+    def test_brief_on_site_has_reach(self):
+        pages = [au.audit_page(HOSTILE, fetcher=None, keys=[],
+                               options={"base_url": f"https://ex.ru/{c}/", "robots": False})
+                 for c in "abc"]
+        rep = au.build_report(pages, registry=au.load_registry(), keys=[], options={"delay": 2.0},
+                              requests_made=3)
+        brief = au.brief_report(rep)
+        self.assertTrue(any(i.get("count") == 3 and len(i["pages"]) == 3 for i in brief["findings"]))
+
+
+class TestEditorCount(unittest.TestCase):
+    """Число «ориентиров редактора» — проверенные в этом запуске, без повторов по страницам,
+    и отдельно — сколько так помечено в реестре."""
+
+    def test_counts_are_consistent(self):
+        reg = au.load_registry()
+        pages = [audit_file(BASIC), audit_file(BASIC, options={"base_url": "https://example.com/b/",
+                                                               "robots": False})]
+        cov = au.build_report(pages, registry=reg, keys=[], options={"delay": 2.0},
+                              requests_made=0)["coverage"]
+        one = au.build_report(pages[:1], registry=reg, keys=[], options={"delay": 2.0},
+                              requests_made=0)["coverage"]
+        self.assertEqual(cov["editor_guidelines_in_registry"],
+                         sum(1 for p in reg["params"] if p["editor_guideline"]))
+        self.assertEqual(cov["editor_guidelines"],
+                         cov["editor_guidelines_registry_flag"] + cov["editor_guidelines_by_threshold"])
+        self.assertLessEqual(cov["editor_guidelines_registry_flag"], cov["editor_guidelines_in_registry"])
+        self.assertLess(cov["editor_guidelines"], 2 * one["editor_guidelines"],
+                        "две страницы не удваивают счёт")
+
+
+if __name__ == "__main__":
+    unittest.main()

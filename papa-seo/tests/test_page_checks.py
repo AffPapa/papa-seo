@@ -461,9 +461,25 @@ class DocumentAndHeaderTest(unittest.TestCase):
         self.assertEqual(rows["speed.server_timing"]["status"], "info")
 
     def test_no_compression_is_a_finding(self):
-        rows = self.rows(headers={"server": "nginx"})
+        fetch = {"bytes": 50000, "chain": [], "final_url": "https://a.test/", "ttfb_ms": 50}
+        rows = self.rows(headers={"server": "nginx"}, fetch=fetch)
         self.assertEqual(rows["speed.compression"]["status"], "warn")
+        self.assertIn("gzip", rows["speed.compression"]["observation"], "сказано, что мы просили")
         self.assertEqual(rows["speed.cache_control"]["status"], "warn")
+
+    def test_compression_unknown_without_our_request_and_tiny_docs_pass(self):
+        rows = self.rows(headers={"server": "nginx"})
+        self.assertEqual(rows["speed.compression"]["status"], "skip",
+                         "заголовки без нашего запроса: что просили — неизвестно")
+        tiny = self.rows(headers={"server": "nginx"},
+                         fetch={"bytes": 300, "chain": [], "final_url": "https://a.test/"})
+        self.assertEqual(tiny["speed.compression"]["status"], "info")
+
+    def test_ttfb_prefers_first_byte_over_total_time(self):
+        rows = self.rows(fetch={"elapsed_ms": 2500, "ttfb_ms": 90, "chain": [],
+                                "final_url": "https://a.test/"})
+        self.assertEqual(rows["speed.ttfb"]["status"], "pass")
+        self.assertEqual(rows["speed.ttfb"]["value"], 90)
 
     def test_ttfb_thresholds_are_labelled_as_one_measurement(self):
         fast = self.rows(fetch={"elapsed_ms": 120, "chain": [], "final_url": "https://a.test/"})

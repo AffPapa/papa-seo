@@ -58,6 +58,9 @@ except ImportError:  # pragma: no cover
 __version__ = "0.1.1"
 
 USER_AGENT = "papa-seo/0.2 (+https://github.com/AffPapa/papa-seo)"
+# Просим только то, что распаковывает стандартная библиотека (с потолком, см.
+# _decompress_bounded). Раньше здесь стояло identity — и проверка сжатия ругала любой сайт.
+ACCEPT_ENCODING = "gzip, deflate"
 DEFAULT_DELAY = 2.0          # seconds between requests (SPEC §2 rule 3)
 DEFAULT_TIMEOUT = 10.0       # per socket operation
 DEFAULT_HOP_DEADLINE = 30.0  # whole request+body of one hop
@@ -484,6 +487,8 @@ class Response:
     elapsed_ms: int
     fetched_at: str
     notes: list = field(default_factory=list)
+    # До первого байта ответа последнего шага цепочки: без нашей паузы и без редиректов.
+    ttfb_ms: int | None = None
 
     @property
     def sha256(self) -> str:
@@ -505,7 +510,8 @@ class Response:
             "status": self.status, "reason": self.reason, "chain": self.chain,
             "headers": self.headers, "bytes": len(self.body), "sha256": self.sha256,
             "truncated": self.truncated, "content_type": self.content_type, "ip": self.ip,
-            "elapsed_ms": self.elapsed_ms, "fetched_at": self.fetched_at, "notes": self.notes,
+            "elapsed_ms": self.elapsed_ms, "ttfb_ms": self.ttfb_ms,
+            "fetched_at": self.fetched_at, "notes": self.notes,
         }
 
 
@@ -612,7 +618,7 @@ class Fetcher:
         target = validate_url(url, allow_local=local)
         local_origin = target.origin if (local and not is_public_ip(target.host)) else None
         chain: list[dict] = []
-        started = time.monotonic()
+        active_s = 0.0  # время самих запросов: пауза вежливости в него не входит
         current_method = method
         for hop in range(self.max_redirects + 1):
             hop_local = local_origin is not None and target.origin == local_origin
@@ -620,8 +626,10 @@ class Fetcher:
                 target = validate_url(target.url, allow_local=hop_local)
             ip = resolve_host(target.host, target.port, allow_local=hop_local, timeout=self.timeout)
             self._pace(target.host)
-            status, reason, hdrs, body, truncated, notes = self._one_request(
+            hop_started = time.monotonic()
+            status, reason, hdrs, body, truncated, notes, ttfb_s = self._one_request(
                 target, ip, current_method, extra, limit)
+            active_s += time.monotonic() - hop_started
             self.requests_made += 1
             location = hdrs.get("location")
             step = {"url": target.url, "status": status}
@@ -656,7 +664,7 @@ class Fetcher:
             return Response(
                 url=url, final_url=target.url, method=current_method, status=status, reason=reason,
                 headers=hdrs, chain=chain, body=body, truncated=truncated, ip=ip,
-                elapsed_ms=int((time.monotonic() - started) * 1000),
+                elapsed_ms=int(active_s * 1000), ttfb_ms=int(ttfb_s * 1000),
                 fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), notes=notes)
         raise SafeHttpError("too_many_redirects", "redirect limit reached", url=url, chain=chain)
 
@@ -665,17 +673,19 @@ class Fetcher:
             conn = _PinnedHTTPSConnection(target.host, target.port, ip, self.timeout, self._ssl)
         else:
             conn = _PinnedHTTPConnection(target.host, target.port, ip, self.timeout)
-        deadline = time.monotonic() + max(self.timeout, DEFAULT_HOP_DEADLINE)
+        started = time.monotonic()
+        deadline = started + max(self.timeout, DEFAULT_HOP_DEADLINE)
         notes: list[str] = []
         try:
             conn.putrequest(method, target.request_path, skip_accept_encoding=True)
-            base = {"User-Agent": self.user_agent, "Accept": "*/*", "Accept-Encoding": "identity",
+            base = {"User-Agent": self.user_agent, "Accept": "*/*", "Accept-Encoding": ACCEPT_ENCODING,
                     "Connection": "close"}
             base.update(extra)
             for k, v in base.items():
                 conn.putheader(k, v)
             conn.endheaders()
             resp = conn.getresponse()
+            ttfb_s = time.monotonic() - started
             hdrs = _headers_to_dict(resp.getheaders())
             if method == "HEAD" or resp.status in REDIRECT_CODES:
                 body, truncated = (b"", False) if method == "HEAD" else _read_bounded(resp, 65536, deadline)
@@ -689,7 +699,7 @@ class Fetcher:
                         notes.append(note)
             if truncated:
                 notes.append(f"body truncated at {limit} bytes")
-            return resp.status, resp.reason, hdrs, body, truncated, notes
+            return resp.status, resp.reason, hdrs, body, truncated, notes, ttfb_s
         except SafeHttpError:
             raise
         except ssl.SSLError as exc:
@@ -749,12 +759,16 @@ def _json_escape_cp(cp: int) -> str:
     return "\\u%04x\\u%04x" % (0xD800 + (v >> 10), 0xDC00 + (v & 0x3FF))
 
 
+# The same set as _is_invisible, as one character class: a regex scan is ~20x faster than a
+# per-character Python loop on a multi-megabyte report.
+_INVISIBLE_RE = re.compile("[" + "".join(re.escape(chr(c)) for c in sorted(INVISIBLE_CHARS))
+                           + "\U000E0000-\U000E007F\x80-\x9F\uFE00-\uFE0F\U000E0100-\U000E01EF]")
+
+
 def dump_json(data, *, indent: int | None = 1) -> str:
     """JSON with readable Cyrillic but every invisible character spelled as an escape."""
     text = json.dumps(data, ensure_ascii=False, indent=indent, default=str)
-    if any(_is_invisible(ord(c)) for c in text):
-        text = "".join(_json_escape_cp(ord(c)) if _is_invisible(ord(c)) else c for c in text)
-    return text
+    return _INVISIBLE_RE.sub(lambda m: _json_escape_cp(ord(m.group())), text)
 
 
 def escape_snippet(text: str, limit: int = 200) -> str:

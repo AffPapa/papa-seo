@@ -52,10 +52,10 @@ NOTE = (
     "поиска: поисковики не публиковали ни одной шкалы читаемости как фактора."
 )
 
-# Параметры реестра (plans/papa-seo-v2-2026-10-30/registry.json, 0.2.0), которые
+# Параметры реестра (plans/papa-seo-v2-2026-10-30/registry.json, 0.2.2), которые
 # закрывает этот скрипт: id → путь в отчёте. Контракт для audit.py: путь по точкам,
 # `keys[]` — список по каждой ключевой фразе.
-REGISTRY = "urn:papa-seo:registry:0.2.0"
+REGISTRY = "urn:papa-seo:registry:0.2.2"
 PARAM_MAP = {
     "content.chars": "counts",
     "content.sentences": "rhythm.sentence_words",
@@ -496,10 +496,7 @@ class _HTMLText(HTMLParser):
         self.comments += 1
 
 
-def html_to_text(raw: str) -> tuple[str, int]:
-    p = _HTMLText()
-    p.feed(raw)
-    p.close()
+def _text_of(p: "_HTMLText") -> tuple[str, int]:
     text = "".join(p.parts)
     text = re.sub(r"[ \t\r\f\v]+", " ", text)
     text = re.sub(r"\n\s*\n+", "\n\n", text)
@@ -686,10 +683,49 @@ def _zone(items: list[str]) -> dict:
     }
 
 
+class _Tee(HTMLParser):
+    """Один проход html.parser на несколько обработчиков. Разбор (регулярки, состояние
+    CDATA) — самая дорогая часть; обработчики дешёвые. Текст и зоны раньше разбирали
+    страницу дважды."""
+
+    def __init__(self, *sinks: HTMLParser):
+        super().__init__(convert_charrefs=True)
+        self.sinks = sinks
+
+    def handle_starttag(self, tag, attrs):
+        for s in self.sinks:
+            s.handle_starttag(tag, attrs)
+
+    def handle_startendtag(self, tag, attrs):
+        for s in self.sinks:
+            s.handle_startendtag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        for s in self.sinks:
+            s.handle_endtag(tag)
+
+    def handle_data(self, data):
+        for s in self.sinks:
+            s.handle_data(data)
+
+    def handle_comment(self, data):
+        for s in self.sinks:
+            s.handle_comment(data)
+
+    def close(self):
+        super().close()
+        for s in self.sinks:
+            s.close()
+
+
 def zones_from_html(raw: str, url: str | None = None) -> dict:
     p = _HTMLZones()
     p.feed(raw)
     p.close()
+    return _zones_of(p, url)
+
+
+def _zones_of(p: "_HTMLZones", url: str | None = None) -> dict:
     first, source = None, "none"
     for want_main in (True, False):
         for in_main, text in p.paragraphs:
@@ -1255,8 +1291,13 @@ def analyze(text: str, keys: list[str] | None = None, lang: str = "auto",
             is_html: bool = False, url: str | None = None) -> dict:
     raw = text
     html_comments = 0
+    zone_parser = None
     if is_html:
-        text, html_comments = html_to_text(text)
+        text_parser, zone_parser = _HTMLText(), _HTMLZones()
+        tee = _Tee(text_parser, zone_parser)
+        tee.feed(raw)
+        tee.close()
+        text, html_comments = _text_of(text_parser)
     plain, masked = clean_markdown(text)
     masked["html_comments"] += html_comments
     blocks = split_blocks(plain)
@@ -1305,7 +1346,7 @@ def analyze(text: str, keys: list[str] | None = None, lang: str = "auto",
     stop_n = n_words - len(content)
     top_count = top[0][1] if top else 0
 
-    zones = zones_from_html(raw, url) if is_html else zones_from_markdown(raw)
+    zones = _zones_of(zone_parser, url) if is_html else zones_from_markdown(raw)
     if url and not zones["url"]["items"]:
         zones["url"] = _zone([url])
         zones["_meta"]["url_source"] = "аргумент --url"

@@ -63,7 +63,10 @@ class LocalServer:
         self.httpd.daemon_threads = True
         self.port = self.httpd.server_address[1]
         self.base = f"http://127.0.0.1:{self.port}"
-        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        # serve_forever polls for shutdown every 0.5 s by default; every test with a server
+        # paid that half-second on exit. 0.01 s keeps the CPU idle and the suite fast.
+        self.thread = threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.01},
+                                       daemon=True)
 
     def __enter__(self):
         self.thread.start()
