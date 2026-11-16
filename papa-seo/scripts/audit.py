@@ -48,7 +48,7 @@ try:  # в пакете есть; без него параметры разме�
 except Exception:  # pragma: no cover
     schema_check = None
 
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAX_PAGES = 20
 EXIT_PAGE_NOT_OK = 2  # одна страница, отчёт готов, но она отвечает не 2xx (404, 500…)
@@ -1288,13 +1288,16 @@ def c_js_links(ctx):
        source="Google: Qualify your outbound links")
 def c_nofollow_internal(ctx):
     links = ctx.get("links") or []
-    hits = [l for l in links if l.get("internal") and set(l.get("rel") or []) & {"nofollow", "ugc", "sponsored"}]
+    # sponsored/ugc на своём адресе — осознанная пометка (платный переход через свой редирект,
+    # пользовательский раздел): Google просит помечать такие ссылки, а не снимать пометку.
+    hits = [l for l in links if l.get("internal") and "nofollow" in set(l.get("rel") or [])
+            and not set(l.get("rel") or []) & {"ugc", "sponsored"}]
     if not links:
         return nodata("Ссылки не разбирали")
     if hits:
-        return warn(f"Внутренних ссылок с nofollow/ugc/sponsored: {len(hits)}",
+        return warn(f"Внутренних ссылок с nofollow: {len(hits)}",
                     evidence=esc("; ".join(l.get("href", "") for l in hits[:5]), 240),
-                    fix="На своих страницах эти атрибуты обычно лишние")
+                    fix="На своих страницах nofollow обычно лишний")
     return ok("На внутренних ссылках атрибутов nofollow нет")
 
 

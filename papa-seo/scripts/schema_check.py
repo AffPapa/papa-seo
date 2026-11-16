@@ -163,6 +163,8 @@ REQ_RULES: list[dict] = [
     {"id": "markup.req_person", "title": "Person / ProfilePage", "types": {"Person", "ProfilePage"},
      "doc_required": True, "required": [("special", "person")],
      "recommended": ["image", "sameAs", "alternateName", "description", "identifier"],
+     # у ProfilePage эти свойства Google ждёт у Person/Organization в mainEntity, не у страницы
+     "recommended_in_types": {"ProfilePage": "mainEntity"},
      "source": _gsd("Profile page", "profile-page")},
     {"id": "markup.req_event", "title": "Event",
      "types": {"Event", "BusinessEvent", "EducationEvent", "Festival", "SportsEvent",
@@ -354,6 +356,9 @@ URL_PROPS = {"url", "sameAs", "logo", "contentUrl", "embedUrl", "thumbnailUrl", 
 NUM_PROPS = {"price", "ratingValue", "bestRating", "worstRating", "ratingCount", "reviewCount",
              "position", "answerCount", "upvoteCount", "numberOfItems", "latitude", "longitude",
              "width", "height", "minValue", "maxValue", "value"}
+# `value` — число только у этих типов; у PropertyValue schema.org разрешает текст
+# («Страна» → «Германия»), и требовать от него числа нельзя (rev13, 13.11.2026).
+VALUE_NUMERIC_TYPES = {"QuantitativeValue", "MonetaryAmount"}
 EMPTY_MARKERS = {"", "null", "none", "n/a", "na", "undefined", "nan", "-", "—", "не указано",
                  "не указан", "не указана", "tbd", "0000-00-00"}
 _ISO_DT = re.compile(
@@ -516,13 +521,31 @@ def _present(node: dict, prop: str) -> bool:
 
 def _sub_present(value, subprop: str) -> bool:
     for v in _as_list(value):
-        if isinstance(v, dict) and _present(v, subprop):
+        if isinstance(v, dict) and _present(_resolve(v), subprop):
             return True
     return False
 
 
+# Узлы документа по @id — заполняется в check_structured_data на время одной проверки.
+# `mainEntity: {"@id": "…#person"}` — штатная запись графа: сам Person лежит рядом в @graph.
+# Без разворота ссылки правило видит пустышку и пишет «нет mainEntity с Person» (rev13, 13.11.2026).
+_ID_NODES: dict[str, dict] = {}
+
+
+def _resolve(node):
+    """Ссылка на узел → сам узел, если он есть в этом документе и полнее ссылки."""
+    if not isinstance(node, dict):
+        return node
+    oid = node.get("@id")
+    if isinstance(oid, str):
+        full = _ID_NODES.get(oid.strip())
+        if full is not None and full is not node and len(full) > len(node):
+            return full
+    return node
+
+
 def _deep_nodes(value) -> list:
-    return [v for v in _as_list(value) if isinstance(v, dict)]
+    return [_resolve(v) for v in _as_list(value) if isinstance(v, dict)]
 
 
 def _special(key: str, node: dict, via: str | None = None) -> list[str]:
@@ -734,6 +757,10 @@ def _required_checks(rows: Rows, node: dict, types: list, label: str, via: str |
         if rule.get("recommended_in"):
             inner = _deep_nodes(node.get(rule["recommended_in"]))
             scope = inner[0] if inner else {}
+        for t, prop in (rule.get("recommended_in_types") or {}).items():
+            if t in types:
+                inner = _deep_nodes(node.get(prop))
+                scope = inner[0] if inner else {}
         skip: set = set()
         for t, names in (rule.get("recommended_skip") or {}).items():
             if t in types:
@@ -834,7 +861,8 @@ def check_entity(rows: Rows, ent: dict, ids_seen: dict, refs: list, canonical: s
                 bad_dates.append(f"{k}={v.strip()[:30]}")
             if k in URL_PROPS and not re.match(r"^https?://", v.strip(), re.I):
                 rel_urls.append(f"{k}={v.strip()[:40]}")
-            if k in NUM_PROPS and _MONEY_CHARS.search(v.strip()):
+            if k in NUM_PROPS and _MONEY_CHARS.search(v.strip()) \
+                    and not (k == "value" and not (set(types) & VALUE_NUMERIC_TYPES)):
                 bad_nums.append(f"{k}={v.strip()[:20]}")
     if bad_dates:
         rows.add("markup.date_format", "fail", "Даты не по ISO 8601: " + "; ".join(bad_dates[:5]),
@@ -1058,6 +1086,13 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
     ids_seen: dict[str, set] = {}
     refs: list = []
     typed = [e for e in entities[:MAX_ENTITIES] if e["types"]]
+    _ID_NODES.clear()
+    for ent in entities[:MAX_ENTITIES]:
+        oid = ent["node"].get("@id")
+        if isinstance(oid, str) and oid.strip() and ent["types"]:
+            key = oid.strip()
+            if key not in _ID_NODES or len(ent["node"]) > len(_ID_NODES[key]):
+                _ID_NODES[key] = ent["node"]
     for ent in entities[:MAX_ENTITIES]:
         check_entity(rows, ent, ids_seen, refs, canonical)
     if typed and not any(r["id"] == "markup.jsonld_type" for r in rows.rows):

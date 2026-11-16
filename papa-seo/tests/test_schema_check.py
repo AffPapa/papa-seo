@@ -599,6 +599,78 @@ class ValueFormatTest(unittest.TestCase):
         self.assertEqual(status_of(r, "markup.visible_values"), "fail")
 
 
+class IdReferenceTest(unittest.TestCase):
+    """Ссылка {"@id": …} на узел того же документа — это сам узел (ревизия 13.11.2026)."""
+
+    PERSON = {"@type": "Person", "@id": "https://e.test/p#person", "name": "Иван",
+              "image": "https://e.test/i.jpg", "description": "о нём",
+              "sameAs": ["https://t.me/ivan"], "alternateName": "ivan", "identifier": "42"}
+
+    def graph(self, *nodes):
+        return {"@context": "https://schema.org", "@graph": list(nodes)}
+
+    def profile_row(self, result):
+        return [r for r in rows_for(result, "markup.req_person")
+                if r["entity"].startswith("ProfilePage")][0]
+
+    def test_profile_page_with_person_by_id_reference_is_not_missing_main_entity(self):
+        r = check_jsonld(self.graph(self.PERSON, {
+            "@type": "ProfilePage", "@id": "https://e.test/p#page",
+            "mainEntity": {"@id": "https://e.test/p#person"}}))
+        row = self.profile_row(r)
+        self.assertEqual(row["status"], "pass", row["observation"])
+
+    def test_reference_before_the_node_resolves_too(self):
+        r = check_jsonld(self.graph({
+            "@type": "ProfilePage", "mainEntity": {"@id": "https://e.test/p#person"}},
+            self.PERSON))
+        self.assertEqual(self.profile_row(r)["status"], "pass")
+
+    def test_profile_page_recommended_props_are_read_from_the_person(self):
+        person = {k: v for k, v in self.PERSON.items() if k not in ("sameAs", "identifier")}
+        r = check_jsonld(self.graph(person, {
+            "@type": "ProfilePage", "mainEntity": {"@id": "https://e.test/p#person"}}))
+        row = self.profile_row(r)
+        self.assertEqual(row["status"], "info")
+        self.assertEqual(row["value"]["missing_recommended"], ["sameAs", "identifier"],
+                         "image и description есть у Person — у страницы их искать нельзя")
+
+    def test_profile_page_with_a_dangling_reference_still_fails(self):
+        r = check_jsonld(self.graph({
+            "@type": "ProfilePage", "mainEntity": {"@id": "https://e.test/p#nobody"}}))
+        row = self.profile_row(r)
+        self.assertEqual(row["status"], "fail")
+        self.assertIn("mainEntity с Person", row["observation"])
+
+    def test_index_does_not_leak_between_documents(self):
+        check_jsonld(self.graph(self.PERSON))
+        r = check_jsonld(self.graph({
+            "@type": "ProfilePage", "mainEntity": {"@id": "https://e.test/p#person"}}))
+        self.assertEqual(self.profile_row(r)["status"], "fail",
+                         "узел из прошлой проверки не должен закрывать находку в этой")
+
+
+class PropertyValueTextTest(unittest.TestCase):
+    """PropertyValue.value — текст по schema.org; число ждём только у величин (13.11.2026)."""
+
+    def ctx(self, node):
+        return dict(node, **{"@context": "https://schema.org"})
+
+    def test_text_value_of_property_value_is_not_a_price_format_error(self):
+        r = check_jsonld(self.ctx({"@type": "Service", "name": "Партнёрка", "additionalProperty": [
+            {"@type": "PropertyValue", "name": "Страна", "value": "Германия"},
+            {"@type": "PropertyValue", "name": "Мин. выплата", "value": "$100"}]}))
+        self.assertEqual([x for x in rows_for(r, "markup.price_format") if x["status"] == "fail"], [])
+
+    def test_quantitative_value_with_a_unit_in_the_number_still_fails(self):
+        r = check_jsonld(self.ctx({"@type": "QuantitativeValue", "value": "15 кг"}))
+        self.assertEqual(status_of(r, "markup.price_format"), "fail")
+
+    def test_price_with_a_currency_sign_still_fails(self):
+        r = check_jsonld(self.ctx({"@type": "Offer", "price": "$100", "priceCurrency": "USD"}))
+        self.assertEqual(status_of(r, "markup.price_format"), "fail")
+
+
 class InputModeTest(unittest.TestCase):
     def test_json_file_input(self):
         with tempfile.TemporaryDirectory() as d:

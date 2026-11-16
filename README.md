@@ -182,9 +182,9 @@ npx skills add находит papa-seo/SKILL.md в репозитории (пр�
 <summary>Скачать</summary>
 
 - [Скачать zip (main)](https://github.com/AffPapa/papa-seo/archive/refs/heads/main.zip)
-- [Релиз v0.2.2](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.2)
+- [Релиз v0.2.3](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.3)
 
-main.zip — текущая ветка main, всегда актуален; внутри папка papa-seo-main/, скил лежит в papa-seo-main/papa-seo/. Релиз v0.2.2 — архив papa-seo-0.2.2.zip: папка papa-seo/ (скил, скрипты, тесты), README на двух языках, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES с текстами лицензий, docs/RESEARCH и evals/; SHA-256 в описании релиза. Копию архива на affpapa.org не держим, чтобы не разъехалась с GitHub.
+main.zip — текущая ветка main, всегда актуален; внутри папка papa-seo-main/, скил лежит в papa-seo-main/papa-seo/. Релиз v0.2.3 — архив papa-seo-0.2.3.zip: папка papa-seo/ (скил, скрипты, тесты), README на двух языках, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES с текстами лицензий, docs/RESEARCH и evals/; SHA-256 в описании релиза. Копию архива на affpapa.org не держим, чтобы не разъехалась с GitHub.
 
 </details>
 ### Контекст проекта

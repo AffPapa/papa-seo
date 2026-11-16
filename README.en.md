@@ -184,9 +184,9 @@ npx skills add finds papa-seo/SKILL.md in the repository (checked 2026-10-26), p
 <summary>Download</summary>
 
 - [Download zip (main)](https://github.com/AffPapa/papa-seo/archive/refs/heads/main.zip)
-- [Release v0.2.2](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.2)
+- [Release v0.2.3](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.3)
 
-main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.2.2 is papa-seo-0.2.2.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
+main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.2.3 is papa-seo-0.2.3.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
 
 </details>
 ### Project context

@@ -677,6 +677,26 @@ the standard library marshal and pickle modules.</p>
                                  options={"base_url": url, "robots": False})
         return rows_by_id(page)
 
+    PAID = """<!doctype html><html lang="ru"><head><title>Каталог партнёрок</title></head><body>
+<main><h1>Каталог партнёрок</h1><p>Список программ с условиями и выплатами по странам.</p>
+<a href="/go/29" rel="sponsored nofollow noopener">Перейти к рекламодателю</a>
+<a href="/forum/t/1" rel="ugc nofollow">Тема на форуме</a>
+%s</main></body></html>"""
+
+    def test_sponsored_redirect_on_own_host_is_not_internal_nofollow(self):
+        row = self.rows(self.PAID % "", "https://portal.example/catalog/")
+        self.assertEqual(row["links.nofollow_internal"]["verdict"], au.OK,
+                         "sponsored/ugc на своём редиректе — пометка по правилам Google")
+
+    def test_plain_nofollow_on_own_page_is_still_reported(self):
+        row = self.rows(self.PAID % '<a href="/about" rel="nofollow">О нас</a>',
+                        "https://portal.example/catalog/")
+        nf = row["links.nofollow_internal"]
+        self.assertEqual(nf["verdict"], au.WARN)
+        self.assertIn("nofollow: 1", nf["observation"])
+        self.assertIn("/about", nf["evidence"])
+        self.assertNotIn("/go/29", nf["evidence"])
+
     def test_fragment_links_in_nav_are_not_links_without_an_address(self):
         row = self.rows(self.DOCS, "https://docs.example.org/3/library/json.html")
         self.assertEqual(row["access.nav_without_href"]["verdict"], au.OK,
