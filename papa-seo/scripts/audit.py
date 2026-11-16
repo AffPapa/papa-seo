@@ -1629,8 +1629,16 @@ def c_canonical_count(ctx):
     if not canon:
         return nodata("canonical нет")
     if len(canon) > 1:
+        hrefs = {(c.get("href") or "").strip() for c in canon}
+        if len(hrefs) == 1:
+            # Два одинаковых тега не противоречат друг другу: Google игнорирует canonical,
+            # когда подсказки расходятся, а здесь адрес один (Q2, moysklad.ru/integratsii/).
+            return warn(f"rel=canonical объявлен {_qty(len(canon), 'раз', 'раза', 'раз')}, "
+                        "адрес у всех один — противоречия нет, лишний тег стоит убрать",
+                        severity="low", evidence=esc(next(iter(hrefs)), 240),
+                        fix="Оставить один тег")
         return bad(f"rel=canonical объявлен {_qty(len(canon), 'раз', 'раза', 'раз')} "
-                   "— Google проигнорирует все", severity="high",
+                   "с разными адресами — Google может проигнорировать все", severity="high",
                    evidence=esc("; ".join(c.get("href", "") for c in canon), 240),
                    fix="Оставить один тег")
     return ok("Один canonical")

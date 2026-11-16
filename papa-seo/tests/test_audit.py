@@ -1527,3 +1527,21 @@ class TestEditorCount(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CanonicalDuplicateTest(unittest.TestCase):
+    """Q2 17.11: два одинаковых canonical — не противоречие, не high."""
+
+    def _run(self, hrefs):
+        fn = next(c for c in au.CHECKS if c.id == "access.canonical_count").fn
+        return fn({"canonical": [{"href": h, "in_head": True} for h in hrefs]})
+
+    def test_identical_tags_are_low_warning(self):
+        r = self._run(["https://example.ru/a/", "https://example.ru/a/"])
+        self.assertEqual(r["verdict"], "warn")
+        self.assertEqual(r["severity"], "low")
+
+    def test_different_tags_stay_high(self):
+        r = self._run(["https://example.ru/a/", "https://example.ru/b/"])
+        self.assertEqual(r["verdict"], "problem")
+        self.assertEqual(r["severity"], "high")
