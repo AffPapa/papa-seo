@@ -24,6 +24,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit, urlunsplit
 from xml.etree import ElementTree as ET
+from xml.parsers import expat
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import http_safe  # noqa: E402
@@ -110,6 +111,37 @@ def _strip_www(h: str) -> str:
     return h[4:] if h.startswith("www.") else h
 
 
+class _PrologDone(Exception):
+    pass
+
+
+def _refuse_dtd_by_parser(data: bytes) -> None:
+    """The byte check above misses UTF-16/UTF-32 and other encodings expat decodes itself.
+    So expat — the same decoder ElementTree uses — reads the prolog and refuses a DOCTYPE
+    as an event; the scan stops at the root element, so a big sitemap costs one chunk."""
+    p = expat.ParserCreate()
+
+    def refuse(*_a):
+        raise SitemapError("dtd_refused", "DOCTYPE/ENTITY declarations are refused (XXE, entity expansion)")
+
+    def root(*_a):
+        raise _PrologDone()
+
+    p.StartDoctypeDeclHandler = refuse
+    p.EntityDeclHandler = refuse
+    p.StartElementHandler = root
+    try:
+        for i in range(0, len(data), 65536):
+            p.Parse(data[i:i + 65536], False)
+        p.Parse(b"", True)
+    except _PrologDone:
+        return
+    except expat.ExpatError:
+        return  # malformed XML: the main parser reports xml_invalid
+    except (ValueError, LookupError) as exc:  # «multi-byte encodings are not supported», unknown codec
+        raise SitemapError("xml_invalid", f"XML encoding not supported: {exc}") from None
+
+
 def parse_sitemap(data: bytes, *, max_bytes: int = MAX_UNCOMPRESSED, max_urls: int = MAX_URLS) -> dict:
     """Stream-parse sitemap XML bytes. Returns raw entries (bounded) and structural facts."""
     if data[:2] == b"\x1f\x8b":
@@ -122,6 +154,7 @@ def parse_sitemap(data: bytes, *, max_bytes: int = MAX_UNCOMPRESSED, max_urls: i
     lowered = data.lower()
     if b"<!doctype" in lowered or b"<!entity" in lowered:
         raise SitemapError("dtd_refused", "DOCTYPE/ENTITY declarations are refused (XXE, entity expansion)")
+    _refuse_dtd_by_parser(data)
     root_name, root_ns = None, None
     entries: list[dict] = []
     children: list[dict] = []
@@ -169,6 +202,8 @@ def parse_sitemap(data: bytes, *, max_bytes: int = MAX_UNCOMPRESSED, max_urls: i
             depth -= 1
     except ET.ParseError as exc:
         raise SitemapError("xml_invalid", f"XML parse error: {exc}") from None
+    except (ValueError, LookupError) as exc:
+        raise SitemapError("xml_invalid", f"XML encoding not supported: {exc}") from None
     return {"root": root_name, "namespace": root_ns, "gzip": gz, "bytes_uncompressed": len(data),
             "entries": entries, "children": children, "count": count, "over_limit": over_limit,
             "extensions": dict(extras)}
@@ -410,9 +445,10 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--sample", type=int, default=0, help="fetch N listed URLs (<= 20, URL mode)")
         http_safe.add_pace_args(p)
         p.add_argument("--out")
+        p.add_argument("--force", action="store_true", help="перезаписать существующий файл, даже если его писал не papa-seo")
         args = p.parse_args(argv)
         if args.out:
-            http_safe.safe_out_path(args.out)
+            http_safe.safe_out_path(args.out, force=args.force)
         http_safe.check_delay(args.delay)
         if not 1 <= args.max_children <= MAX_CHILDREN_FETCH:
             raise http_safe.CliError(f"--max-children must be 1..{MAX_CHILDREN_FETCH}", "bad_arguments")
@@ -443,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
             raise http_safe.CliError(exc.message, exc.code) from None
         summary = {"type": report["type"], "entries": report["entries"],
                    "issues": [i["code"] for i in report["issues"]]}
-        return http_safe.emit(report, args.out, summary)
+        return http_safe.emit(report, args.out, summary, force=args.force)
 
     return http_safe.run_cli(body)
 

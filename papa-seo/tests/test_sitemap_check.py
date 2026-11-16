@@ -116,6 +116,36 @@ class AttackTest(unittest.TestCase):
             sc.parse_sitemap(read("sitemap_xxe.xml"))
         self.assertEqual(ctx.exception.code, "dtd_refused")
 
+    def test_utf16_doctype_refused(self):
+        """0.2.3 (S-security №5): в UTF-16 байтовая проверка «<!doctype» не срабатывала,
+        и DTD доходил до expat. Теперь отказ по событию парсера, в любой кодировке."""
+        xml = ('<?xml version="1.0" encoding="UTF-16"?>\n'
+               '<!DOCTYPE urlset [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;">]>\n'
+               '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+               '<url><loc>https://example.com/&b;</loc></url></urlset>')
+        for codec in ("utf-16", "utf-16-be", "utf-16-le"):
+            data = xml.encode(codec)
+            self.assertNotIn(b"<!doctype", data.lower())
+            with self.subTest(codec=codec):
+                with self.assertRaises(sc.SitemapError) as ctx:
+                    sc.parse_sitemap(data)
+                self.assertEqual(ctx.exception.code, "dtd_refused")
+        # Объявленная многобайтовая кодировка без поддержки в expat: раньше ValueError
+        # вылетал наружу как internal_error, теперь — понятный xml_invalid.
+        for codec in ("utf-16-be", "utf-32"):
+            with self.subTest(declared=codec):
+                with self.assertRaises(sc.SitemapError) as ctx:
+                    sc.parse_sitemap(xml.replace("UTF-16", codec.upper()).encode(codec))
+                self.assertIn(ctx.exception.code, ("dtd_refused", "xml_invalid"))
+
+    def test_utf16_plain_sitemap_still_parses(self):
+        xml = ('<?xml version="1.0" encoding="UTF-16"?>'
+               '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+               '<url><loc>https://example.com/a</loc></url></urlset>')
+        r = sc.parse_sitemap(xml.encode("utf-16"))
+        self.assertEqual(r["count"], 1)
+        self.assertEqual(r["entries"][0]["loc"], "https://example.com/a")
+
     def test_billion_laughs_refused(self):
         with self.assertRaises(sc.SitemapError):
             sc.parse_sitemap(read("sitemap_bomb.xml"))

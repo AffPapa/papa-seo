@@ -194,6 +194,19 @@ def _first(d: dict, names) -> object:
     return None
 
 
+_ENGINE_SOURCE = re.compile(r"google|яндекс|yandex|bing|schema\.org|sitemaps\.org|robotstxt|"
+                            r"rfc 9309|indexnow|web\.dev|search central", re.I)
+
+
+def is_engine_requirement(item: dict) -> bool:  # строка отчёта или пункт очереди
+    """Требование поисковика — источник из документации поисковиков (Google, Яндекс, Bing,
+    schema.org, sitemaps.org, web.dev). WCAG, HTML, RFC HTTP, OWASP — стандарты, но не
+    требования поиска (M-haiku 16.11.2026: таблицы без caption шли в «требования поисковиков»)."""
+    if "search_engine_requirement" in item:
+        return bool(item["search_engine_requirement"])
+    return bool(_ENGINE_SOURCE.search(str(item.get("source") or "")))
+
+
 def is_editor_source(source) -> bool:
     """Источник сам называет себя мнением редактора, а не требованием документации."""
     return isinstance(source, str) and "ориентир редактора" in source.lower()
@@ -246,8 +259,9 @@ def load_registry(path: str | None = None) -> dict:
             warnings.append(f"реестр больше {MAX_REGISTRY_BYTES} байт, прочитан не весь: {cand}")
         try:
             parsed = json.loads(data.decode("utf-8", "replace"))
-        except json.JSONDecodeError as exc:
-            warnings.append(f"реестр не разобрался как JSON ({exc.msg}), работаем без него: {cand}")
+        except (ValueError, RecursionError) as exc:  # JSONDecodeError и длинное целое
+            reason = getattr(exc, "msg", None) or str(exc) or type(exc).__name__
+            warnings.append(f"реестр не разобрался как JSON ({reason}), работаем без него: {cand}")
             continue
         items, seen = [], set()
         for raw in _registry_items(parsed):
@@ -924,13 +938,32 @@ def c_h1(ctx):
     return ok("Один H1", value=esc(h1_text, 160))
 
 
+CLERICAL_WARN_PER_1000 = 3  # ориентир редактора: канцеляризмов на 1000 слов
+NAUSEA_CLASSIC_WARN = 7.0   # ориентир редактора: √ частоты самой частой основы
+NAUSEA_ACADEMIC_WARN = 8.0  # ориентир редактора: доля самой частой основы, %
+
+
+def _heading_skip(headings: list) -> str | None:
+    """Первый скачок уровня вниз через ступень: «H2 → H5»."""
+    prev = None
+    for h in headings or []:
+        lvl = h.get("level") if isinstance(h, dict) else None
+        if not isinstance(lvl, int):
+            continue
+        if prev is not None and lvl > prev + 1:
+            return f"H{prev} → H{lvl}" + (f" («{esc(h.get('text'), 40)}»)" if h.get("text") else "")
+        prev = lvl
+    return None
+
+
 @check("meta.heading_order", "meta", "Порядок заголовков", severity="low",
        source="W3C: Headings — HTML Accessibility")
 def c_heading_order(ctx):
     if not (ctx.get("headings") or []):
         return warn("Заголовков H1–H6 нет совсем", fix="Разбить текст подзаголовками")
     if ctx.flag("heading_level_skipped"):
-        return warn("Уровни заголовков идут с пропуском (например, H2 → H4)",
+        jump = _heading_skip(ctx.get("headings") or [])
+        return warn("Уровни заголовков идут с пропуском" + (f": {jump}" if jump else ""),
                     fix="Выстроить по порядку: это про доступность и структуру, не про рейтинг")
     return ok("Уровни идут по порядку",
               value=", ".join(f"{k}: {v}" for k, v in sorted((ctx.get("heading_counts") or {}).items())))
@@ -970,15 +1003,29 @@ def c_invisible(ctx):
                 fix="Проверить вставки из редакторов: zero-width и bidi ломают поиск по тексту")
 
 
-@check("content.chars", "content", "Слова и знаки", severity="info", source="подсчёт по видимому тексту")
+_SCOPE_RU = {"main": "основной блок <main>/<article>",
+             "content_block_in_main": "блок с основным текстом внутри <main>",
+             "content_block": "блок с основным текстом (эвристика)",
+             "body_without_chrome": "вся страница без меню, шапки и подвала", "file": "весь файл"}
+
+
+def _scope_note(ctx) -> str:
+    scope = dig(ctx.bundle, "text.text_scope")
+    return f" · считали: {_SCOPE_RU[scope]}" if scope in _SCOPE_RU else ""
+
+
+# Счёт слов, предложений и абзацев зависит от того, какой блок признан основным текстом и где
+# в вёрстке граница абзаца, — это оценка, а не факт (C-content 16.11.2026, C2).
+@check("content.chars", "content", "Слова и знаки", severity="info", kind=HEUR,
+       source="подсчёт по основному тексту страницы")
 def c_text_volume(ctx):
     counts = ctx.get("text_counts") or {}
     if not counts:
         return nodata("Текст не разбирали")
     return info(f"{_qty(_n(counts.get('words')), 'слово', 'слова', 'слов')}, "
                 f"{_qty(_n(counts.get('chars_no_spaces')), 'знак', 'знака', 'знаков')} без пробелов, "
-                f"{_qty(_n(counts.get('sentences_prose')), 'предложение', 'предложения', 'предложений')}",
-                value=counts.get("words"))
+                f"{_qty(_n(counts.get('sentences_prose')), 'предложение', 'предложения', 'предложений')}"
+                + _scope_note(ctx), value=counts.get("words"))
 
 
 @check("content.nausea_classic", "content", "Тошнота", severity="low", kind=HEUR,
@@ -988,11 +1035,16 @@ def c_nausea(ctx):
     if not n:
         return nodata("Текст не разбирали")
     academic = n.get("academic_pct") or 0
-    value = f"классическая {n.get('classic')}, академическая {academic} % (основа «{n.get('top_stem')}»)"
-    if academic >= 6:
-        return warn("Одна основа занимает большую долю текста: " + value, value=academic,
-                    fix="Это оценка, а не норма: смотреть, не повторяется ли ключ ради ключа")
-    return ok(value, value=academic)
+    classic = n.get("classic")
+    value = f"классическая {classic}, академическая {academic} % (основа «{n.get('top_stem')}»)"
+    # Классическая тошнота решается по классическому числу (√ частоты самой частой основы), а
+    # академическая — своей строкой content.nausea_academic. Раньше эта строка решала по
+    # академической на пороге 6, а та — на 8, и одно число давало warn и ok (C-content, C9).
+    if isinstance(classic, (int, float)) and classic >= NAUSEA_CLASSIC_WARN:
+        return warn("Одно слово повторяется заметно часто: " + value, value=classic,
+                    fix=f"Ориентир редактора (≥ {NAUSEA_CLASSIC_WARN:g}), нормы у поисковиков нет: "
+                        "смотреть, не повторяется ли ключ ради ключа")
+    return ok(value, value=classic)
 
 
 @check("content.water", "content", "Вода", severity="low", kind=HEUR,
@@ -1101,11 +1153,16 @@ def c_clerical(ctx):
         bits.append(f"штампов и артефактов чат-бота {len(strong)}")
     sample = "; ".join(esc(h.get("match"), 60) for h in strong[:4])
     if not sample:
-        sample = "; ".join(esc(m.get("match") or m.get("word"), 60)
-                           for m in (cler.get("markers") or [])[:4] if isinstance(m, dict))
+        # у маркеров канцелярита ключ — marker (C-content 16.11.2026, C10: evidence было «; »)
+        sample = "; ".join(f"{esc(m.get('marker') or m.get('match') or m.get('word'), 60)}"
+                           + (f" ×{m['count']}" if _n(m.get("count")) > 1 else "")
+                           for m in (cler.get("markers") or [])[:4]
+                           if isinstance(m, dict) and (m.get("marker") or m.get("match") or m.get("word")))
     text = ", ".join(bits)
     text = text[:1].upper() + text[1:]
-    if strong or cler_total >= 3:
+    # Порог — плотность, а не штуки: 3 маркера на 900 словах и на 5000 словах — разные тексты.
+    dense = cler_total >= 3 and (per_1000 is None or _n(per_1000) >= CLERICAL_WARN_PER_1000)
+    if strong or dense:
         return warn(text, evidence=sample or None,
                     fix="Удалять лучше, чем дописывать: штамп убрать, канцелярит развернуть в действие")
     if bits:
@@ -1121,8 +1178,11 @@ def c_key_missing(ctx):
     keys = ctx.get("keys") or []
     if not keys:
         return nodata("Разбор ключей не выполнился")
+    # «Нигде» — ни в тексте, ни в одной зоне (title, H1, alt, URL…): раньше смотрели только текст,
+    # и ключ из title считался отсутствующим рядом со строкой «есть в title» (C-content, C5).
     missing = [k for k in keys
-               if not _n(k.get("exact_by_stems")) and not _n(k.get("any_order_window"))]
+               if (k["missing_everywhere"] if isinstance(k.get("missing_everywhere"), bool)
+                   else not _n(k.get("exact_by_stems")) and not _n(k.get("any_order_window")))]
     if missing:
         return warn("Не встречается нигде: " + "; ".join(esc(k.get("key"), 60) for k in missing[:5]),
                     value=f"{len(missing)} из {len(keys)}",
@@ -1191,6 +1251,30 @@ def _zone_count(cell) -> int:
                 return _n(cell.get(name))
         return 1 if cell.get("present") else 0
     return _n(cell)
+
+
+def key_zone_modes(ctx) -> dict:
+    """{фраза: {зона: "phrase" | "words" | None}}: подряд (по основам или словоформам) или только
+    словами ключа вразбивку в окне. C-content 16.11.2026 (C4): 11 из 50 «есть» держались только
+    на окне «слова в любом порядке» — это не вхождение фразы."""
+    out: dict[str, dict] = {}
+    for k in ctx.get("keys") or []:
+        zones = k.get("zones") if isinstance(k.get("zones"), dict) else None
+        if not k.get("key") or zones is None:
+            continue
+        row = {}
+        for z in ZONE_ORDER:
+            cell = zones.get(z)
+            if isinstance(cell, dict):
+                if _n(cell.get("morphological")) or _n(cell.get("exact_forms")) \
+                        or cell.get("translit_stems"):
+                    row[z] = "phrase"
+                elif _n(cell.get("any_order_window")):
+                    row[z] = "words"
+                else:
+                    row[z] = None
+        out[k["key"]] = row
+    return out
 
 
 def key_zone_hits(ctx) -> dict:
@@ -1294,9 +1378,14 @@ def c_nofollow_internal(ctx):
             and not set(l.get("rel") or []) & {"ugc", "sponsored"}]
     if not links:
         return nodata("Ссылки не разбирали")
-    if hits:
-        return warn(f"Внутренних ссылок с nofollow: {len(hits)}",
-                    evidence=esc("; ".join(l.get("href", "") for l in hits[:5]), 240),
+    summary = ctx.get("links_summary") or {}
+    total = _n(summary.get("nofollow_internal")) if "nofollow_internal" in summary else len(hits)
+    hrefs = summary.get("nofollow_internal_hrefs") or [l.get("href", "") for l in hits]
+    if total:
+        # Повтор одного адреса (поиск в шапке и в мобильном меню) — один адрес, а не два.
+        uniq = list(dict.fromkeys(hrefs))
+        return warn(f"Внутренних ссылок с nofollow: {total}",
+                    evidence=esc("; ".join(uniq[:5]), 240),
                     fix="На своих страницах nofollow обычно лишний")
     return ok("На внутренних ссылках атрибутов nofollow нет")
 
@@ -1387,7 +1476,7 @@ def commercial_signal(ctx) -> str | None:
         price = _PRICE_RE.search(near)
         if price:
             return f"цена рядом с призывом: «{esc(near.strip(), 160)}»"
-    types = {t.lower() for t in (ctx.get("schema_types") or [])}
+    types = {t.lower() for t in _all_schema_types(ctx)}
     hit = types & {"offer", "aggregateoffer", "product", "localbusiness", "order"}
     if hit:
         return "разметка " + ", ".join(sorted(hit))
@@ -1409,10 +1498,26 @@ def _visible(ctx) -> str:
     return full or text
 
 
+def _visible_page(ctx) -> str:
+    """Видимый текст всей страницы, с шапкой и подвалом (не только <main>)."""
+    return ctx.bundle.get("visible_text_page") or _visible(ctx)
+
+
+def _all_schema_types(ctx) -> list[str]:
+    """Типы из JSON-LD, микроданных и RDFa. Раньше брался только JSON-LD — и Organization в
+    микроданных давал «разметки организации нет» (K-markup 16.11.2026, Б6)."""
+    out = list(ctx.get("schema_types") or [])
+    for t in (ctx.get("microdata_types") or []) + (dig(ctx.bundle, "page.rdfa_types") or []):
+        name = str(t).rstrip("/").split("/")[-1].split(":")[-1]
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 @check("commerce.contacts_visible", "commerce", "Контакты на странице", severity="medium", kind=HEUR,
        source="references/yandex.md: коммерческие факторы")
 def c_contacts(ctx):
-    text = _visible(ctx)
+    text = _visible_page(ctx)
     links = ctx.get("links") or []
     if not text and not links:
         return nodata("Текст не разбирали")
@@ -1434,7 +1539,7 @@ def c_contacts(ctx):
 @check("commerce.legal_entity", "commerce", "Реквизиты", severity="low", kind=HEUR,
        source="references/yandex.md: юридические сигналы")
 def c_legal(ctx):
-    text = _visible(ctx)
+    text = _visible_page(ctx)
     if not text:
         return nodata("Текст не разбирали")
     m = _LEGAL_RE.search(text)
@@ -1446,7 +1551,7 @@ def c_legal(ctx):
 @check("commerce.address_markup", "commerce", "Разметка организации", severity="low",
        source="Google: Organization structured data")
 def c_org(ctx):
-    types = [t.lower() for t in (ctx.get("schema_types") or [])]
+    types = [t.lower() for t in _all_schema_types(ctx)]
     orgs = [t for t in types if t in ("organization", "localbusiness", "store", "restaurant",
                                       "corporation", "onlinebusiness")]
     if orgs:
@@ -1691,7 +1796,8 @@ def c_heading_hidden(ctx):
     return ok("Скрытых заголовков нет")
 
 
-@check("content.sentences", "content", "Предложения", severity="info", source="подсчёт по тексту")
+@check("content.sentences", "content", "Предложения", severity="info", kind=HEUR,
+       source="подсчёт по основному тексту страницы")
 def c_sentences(ctx):
     counts = ctx.get("text_counts") or {}
     sent = ctx.get("rhythm") or {}
@@ -1701,11 +1807,12 @@ def c_sentences(ctx):
     mean = desc.get("mean")
     return info(f"{_qty(_n(counts.get('sentences_prose')), 'предложение', 'предложения', 'предложений')}"
                 f", в среднем {mean} {_plural(mean or 0, 'слово', 'слова', 'слов')} "
-                f"(от {desc.get('min')} до {desc.get('max')})",
+                f"(от {desc.get('min')} до {desc.get('max')})" + _scope_note(ctx),
                 value=counts.get("sentences_prose"))
 
 
-@check("content.paragraphs", "content", "Абзацы", severity="info", source="подсчёт по тексту")
+@check("content.paragraphs", "content", "Абзацы", severity="info", kind=HEUR,
+       source="блоки сплошного текста в вёрстке основного блока, не только <p>")
 def c_paragraphs(ctx):
     counts = ctx.get("text_counts") or {}
     if not counts:
@@ -1713,7 +1820,7 @@ def c_paragraphs(ctx):
     para = dig(ctx.bundle, "text.rhythm.paragraph_words") or {}
     mean = para.get("mean")
     return info(f"{_qty(_n(counts.get('paragraphs_prose')), 'абзац', 'абзаца', 'абзацев')}, в среднем "
-                f"{mean} {_plural(mean or 0, 'слово', 'слова', 'слов')}",
+                f"{mean} {_plural(mean or 0, 'слово', 'слова', 'слов')}" + _scope_note(ctx),
                 value=counts.get("paragraphs_prose"))
 
 
@@ -1735,8 +1842,9 @@ def c_nausea_academic(ctx):
     if pct is None:
         return nodata("Текст не разбирали")
     text = f"{pct} % — доля самой частой значимой основы «{n.get('top_stem')}» среди всех слов"
-    if pct >= 8:
-        return warn(text, value=pct, fix="Ориентир редактора: смотреть, не повторяется ли ключ ради ключа")
+    if pct >= NAUSEA_ACADEMIC_WARN:
+        return warn(text, value=pct, fix=f"Ориентир редактора (≥ {NAUSEA_ACADEMIC_WARN:g} %), нормы у "
+                                         "поисковиков нет: смотреть, не повторяется ли ключ ради ключа")
     return ok(text, value=pct)
 
 
@@ -2013,15 +2121,25 @@ def _make_zone_check(cid, zone, severity):
         hits = key_zone_hits(ctx)
         if not hits:
             return nodata("Зоны не разобрались")
+        modes = key_zone_modes(ctx)
         present = [k for k, z in hits.items() if _n(z.get(_zone))]
-        absent = [k for k in hits if k not in present]
-        if zone_words == 0 and not present:
+        loose = [k for k in present if (modes.get(k) or {}).get(_zone) == "words"]
+        present = [k for k in present if k not in loose]
+        absent = [k for k in hits if k not in present and k not in loose]
+        if zone_words == 0 and not present and not loose:
             return nodata(f"Зона «{ZONE_RU[_zone]}» на странице пустая")
+        loose_text = ("словами ключа вразбивку, не фразой: " + "; ".join(esc(k, 50) for k in loose[:4])
+                      if loose else "")
+        if not present and loose:
+            return info(loose_text + ("; нет: " + "; ".join(esc(k, 50) for k in absent[:4])
+                                      if absent else ""), value=f"слов в зоне: {zone_words}")
         if not present:
             return warn("Ни одной фразы: " + "; ".join(esc(k, 50) for k in absent[:5]),
                         value=f"слов в зоне: {zone_words}",
                         fix="Не вставлять ключ ради ключа: если страница про это, предмет называют своими словами")
         text = "есть: " + "; ".join(esc(k, 50) for k in present[:4])
+        if loose:
+            text += "; " + loose_text
         if absent:
             text += "; нет: " + "; ".join(esc(k, 50) for k in absent[:4])
         return ok(text, value=f"слов в зоне: {zone_words}")
@@ -2171,6 +2289,8 @@ def imported_rows(bundle: dict) -> list[dict]:
                 # в «Что делать» она выдавала себя за совет. Теперь у неё своё поле.
                 "fix": item.get("fix"), "note": item.get("note"),
                 "from_script": SCRIPT_NAMES.get(scope, scope), "in_registry": False,
+                **({"severity_by_context": True} if item.get("severity_by_context") else {}),
+                **({"entity": str(item["entity"])[:200]} if item.get("entity") else {}),
             })
     return rows
 
@@ -2193,6 +2313,35 @@ def _row_for(pid: str, by_id: dict, index: dict) -> dict | None:
     return by_id.get(chk.id) if chk is not None else None
 
 
+_VERDICT_RANK = {BAD: 0, WARN: 1, INFO: 2, OK: 3, NODATA: 4, NOTCHECKED: 5}
+
+
+def _rows_by_id(rows: list[dict]) -> dict:
+    """Одна строка на параметр. Скрипты (schema_check) пишут строку на каждую сущность, и раньше
+    сводка брала последнюю: fail обязательного поля у первого Event пропадал за «норма» второго
+    (K-markup 16.11.2026, Б1). Теперь из строк скриптов берётся худшая, с числом сущностей;
+    собственная проверка audit.py по-прежнему главнее строки скрипта."""
+    by_id: dict[str, dict] = {}
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        if r.get("from_script"):
+            groups.setdefault(r["id"], []).append(r)
+    for rid, group in groups.items():
+        worst = min(group, key=lambda r: (_VERDICT_RANK.get(r.get("verdict"), 9),
+                                          SEVERITY_RANK.get(r.get("severity"), 9)))
+        if len(group) > 1 and worst.get("verdict") in (BAD, WARN):
+            same = sum(1 for r in group if r.get("verdict") == worst.get("verdict"))
+            worst = dict(worst, entities_total=len(group), entities_flagged=same)
+            where = f"; первая — {worst['entity']}" if worst.get("entity") else ""
+            worst["observation"] = (f"{worst.get('observation') or ''} "
+                                    f"(строк с этим: {same} из {len(group)}{where})").strip()
+        by_id[rid] = worst
+    for r in rows:
+        if not r.get("from_script"):
+            by_id[r["id"]] = r
+    return by_id
+
+
 def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pages: int = 1,
                    scope: str = "page") -> list[dict]:
     """Строки реестра + результаты проверок.
@@ -2202,7 +2351,7 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
     выгрузка, нужен обход сайта.
     """
     index = _check_index(checks)
-    by_id = {r["id"]: r for r in rows}
+    by_id = _rows_by_id(rows)
     out: list[dict] = []
     used: set[str] = set()
     for param in registry.get("params") or []:
@@ -2222,7 +2371,14 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
             merged = dict(row, **base)
             merged["id"] = row["id"]
             if merged["verdict"] in (BAD, WARN):
-                merged["severity"] = param["severity"] or merged["severity"]
+                # Серьёзность — из реестра, кроме случая, когда скрипт снизил её по контексту
+                # страницы (слайдер, один замер TTFB): раньше реестр молча поднимал её обратно,
+                # и «low» скрипта превращалось в high очереди.
+                lowered = (row.get("severity_by_context")
+                           and SEVERITY_RANK.get(row.get("severity"), -1)
+                           > SEVERITY_RANK.get(param["severity"], 99))
+                if not lowered:
+                    merged["severity"] = param["severity"] or merged["severity"]
             merged["source"] = row.get("source") or param["source"]
             # Источник в строке берётся у скрипта, а пометка приходила из реестра — и они
             # расходились: строка с источником «… ориентир редактора» выходила без пометки,
@@ -2316,7 +2472,9 @@ def queue_item(row: dict, *, registry: dict | None = None) -> dict:
             "group_title": meta.get("title") or row.get("group_title"),
             "severity": row["severity"], "verdict": row["verdict"],
             "observation": row.get("observation"), "fix": row.get("fix"),
-            "editor_guideline": bool(row.get("editor_guideline"))}
+            "editor_guideline": bool(row.get("editor_guideline")),
+            "search_engine_requirement": not row.get("editor_guideline")
+            and is_engine_requirement(row)}
     if row.get("note"):
         item["note"] = row["note"]
     if row.get("blocking_text"):
@@ -2396,6 +2554,10 @@ def audit_page(source: str, *, fetcher=None, keys: list[str], options: dict) -> 
     except Exception as exc:
         bundle["deai"] = {"error": f"{type(exc).__name__}: {exc}"}
     bundle["visible_text"] = visible[:VISIBLE_KEEP_CHARS]
+    # Контакты и реквизиты живут в шапке и подвале — вне <main>. Для них нужен текст всей
+    # страницы (K-markup 16.11.2026: телефон в <header> давал «контактов нет»).
+    bundle["visible_text_page"] = re.sub(
+        r"\s+", " ", " ".join(parsed["parser"].visible_text))[:VISIBLE_KEEP_CHARS]
     schema = adapter_schema(page, url=url, visible_text=bundle["visible_text"])
     if schema is not None:
         bundle["schema"] = schema
@@ -2838,6 +3000,7 @@ def render_html(report: dict) -> str:
              (t[NODATA], "нет данных"), (t[NOTCHECKED], "не проверяли")]
     parts = [
         "<!doctype html>", '<html lang="ru"><head><meta charset="utf-8">',
+        f'<meta name="generator" content="papa-seo {_h(report["version"])}">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         '<meta name="robots" content="noindex">',
         f"<title>{_h(head_title)}: {_h(target)}</title>",
@@ -2984,7 +3147,7 @@ def verdict_text(report: dict) -> str:
     blocked = [p for p in ok_pages if p.get("blocking")]
     fixes = report.get("fix_first") or []
     must = [i for i in fixes if not i.get("editor_guideline")]
-    serious = [i for i in must if i.get("severity") in ("critical", "high")]
+    serious = [i for i in must if i.get("severity") in ("critical", "high") and is_engine_requirement(i)]
     many = len(report["pages"]) > 1
     if not ok_pages:
         return "Проверить не удалось: " + "; ".join(
@@ -3006,10 +3169,16 @@ def verdict_text(report: dict) -> str:
                     "и robots.txt не проверялись.")
     else:
         head.append("Блокирующих условий нет: страница отвечает 200 и открыта для индексации.")
-    if must:
-        head.append(f"Не выполнено требований поисковиков: {len(must)}"
+    engine = [i for i in must if is_engine_requirement(i)]
+    standards = len(must) - len(engine)
+    std_text = (f"; ещё {standards} — по стандартам (доступность, HTML, HTTP, безопасность), "
+                "поисковики этого прямо не требуют" if standards else "")
+    if engine:
+        head.append(f"Не выполнено требований поисковиков: {len(engine)}"
                     + (f", из них серьёзных (critical, high): {len(serious)}" if serious else "")
-                    + ". Начинать с первого пункта очереди.")
+                    + std_text + ". Начинать с первого пункта очереди.")
+    elif standards:
+        head.append("Невыполненных требований поисковиков не нашлось" + std_text + ".")
     else:
         head.append("Невыполненных требований поисковиков не нашлось.")
     return " ".join(head)
@@ -3084,11 +3253,19 @@ def brief_report(report: dict) -> dict:
                             for p in report["pages"] if p.get("error")],
            "requests": report["requests"]["count"],
            "totals": {k: v for k, v in report["totals"].items() if k in (BAD, WARN, OK, NOTCHECKED)},
+           # M-haiku 16.11.2026: brief писал «не проверено 191», полный JSON страницы — 135.
+           # Разница — параметры уровня сайта (нужен обход): причины видны здесь же.
+           "not_checked_reasons": cov.get("not_checked_reasons") or {},
+           "totals_scope": "totals — вся сводка: страница и параметры уровня сайта; "
+                           "pages[].totals в полном JSON — только строки страницы",
            "registry": {"checked": cov["registry_checked"], "params": cov["registry_params"]},
            "blocking": sorted({b for p in report["pages"] for b in p.get("blocking") or []}),
            "queue_rule": QUEUE_RULE,
            "findings": out_items,
-           "findings_total": {"requirements": len(must), "editor_guidelines": len(edit)}}
+           "findings_total": {"requirements": len(must), "editor_guidelines": len(edit),
+                              "search_engine_requirements": sum(1 for i in must
+                                                                if is_engine_requirement(i)),
+                              "standards": sum(1 for i in must if not is_engine_requirement(i))}}
     if report.get("site_scan"):
         out["site_scan"] = _scan_coverage_text(report)
     if not out["pages_failed"]:
@@ -3511,6 +3688,8 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--base-url", help="адрес страницы для локального файла")
         p.add_argument("--out", help="файл HTML-отчёта")
         p.add_argument("--json", dest="json_out", help="файл полного JSON ('-' — в stdout)")
+        p.add_argument("--force", action="store_true",
+                       help="перезаписать существующий --out/--json, даже если его писал не papa-seo")
         p.add_argument("--registry", help="путь к registry.json (по умолчанию references/registry.json)")
         p.add_argument("--lang", default="auto", choices=("auto", "ru", "en"))
         p.add_argument("--no-robots", dest="robots", action="store_false",
@@ -3535,9 +3714,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.out:
             if args.out.lower().endswith(".json"):
                 raise http_safe.CliError("--out — это HTML-отчёт; для JSON есть --json", "bad_arguments")
-            http_safe.safe_out_path(args.out)
+            http_safe.safe_out_path(args.out, force=args.force)
         if args.json_out and args.json_out != "-":
-            http_safe.safe_out_path(args.json_out)
+            http_safe.safe_out_path(args.json_out, force=args.force)
         if args.brief and args.json_out == "-":
             raise http_safe.CliError("--brief и --json - оба пишут в stdout: выберите одно",
                                      "bad_arguments")
@@ -3584,6 +3763,11 @@ def main(argv: list[str] | None = None) -> int:
                 if len(sources) == 1:
                     raise
                 pages.append({"target": src, "error": exc.message, "code": exc.code, "facts": {}})
+            except Exception as exc:  # noqa: BLE001 — одна страница не роняет сводку по сайту
+                if len(sources) == 1:
+                    raise
+                pages.append({"target": src, "error": f"{type(exc).__name__}: {exc}"[:300],
+                              "code": "internal_error", "facts": {}})
             # карту сайта и llms.txt хватит запросить один раз: они общие для хоста
             options = dict(options, sitemap=False, ai_files=False)
 
@@ -3591,7 +3775,7 @@ def main(argv: list[str] | None = None) -> int:
                               requests_made=fetcher.requests_made if fetcher else 0,
                               site_scan=site_scan)
         if args.out:
-            http_safe.write_atomic(args.out, render_html(report))
+            http_safe.write_atomic(args.out, render_html(report), force=args.force)
             report["out_html"] = os.path.abspath(args.out)
         # Отчёт написан, но страница не отвечает 2xx — для CI это провал, а не успех.
         status = pages[0].get("status") if len(pages) == 1 else None
@@ -3600,7 +3784,8 @@ def main(argv: list[str] | None = None) -> int:
             print(http_safe.dump_json(report))
             return rc
         if args.json_out:
-            http_safe.write_atomic(args.json_out, http_safe.dump_json(report) + "\n")
+            http_safe.write_atomic(args.json_out, http_safe.dump_json(http_safe.stamp(report)) + "\n",
+                                   force=args.force)
             report["out_json"] = os.path.abspath(args.json_out)
         if args.brief:
             brief = brief_report(report)

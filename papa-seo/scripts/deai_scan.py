@@ -28,6 +28,7 @@ import unicodedata
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import http_safe  # noqa: E402
 import ru_text  # noqa: E402
 
 _plural = ru_text.plural
@@ -207,15 +208,23 @@ def read_input(path: str) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def check_out_path(path: str) -> str:
+def check_out_path(path: str, force: bool = False) -> str:
+    """--out пишет ровно в переданный путь .json; правила пути — общие (http_safe.safe_out_path):
+    без «..», не каталог, не симлинк, каталог существует, чужой существующий файл — только с --force."""
     if "\x00" in path or not path.lower().endswith(".json"):
         raise ValueError("--out: нужен путь к файлу .json")
-    ap = os.path.abspath(path)
-    if os.path.islink(ap) or os.path.isdir(ap):
-        raise ValueError("--out: путь — каталог или символическая ссылка")
-    if not os.path.isdir(os.path.dirname(ap)):
-        raise ValueError("--out: каталог для файла не существует")
-    return ap
+    try:
+        return http_safe.safe_out_path(path, force=force)
+    except http_safe.CliError as exc:
+        err = ValueError(f"--out: {exc.message}")
+        err.code = exc.code
+        raise err from None
+
+
+def write_report(out: str, report: dict, force: bool = False) -> None:
+    """Атомарно (временный файл + rename), с меткой papa-seo первой строкой JSON."""
+    http_safe.write_atomic(out, json.dumps(http_safe.stamp(report), ensure_ascii=False, indent=2),
+                           force=force)
 
 
 # ---------------------------------------------------------------- helpers
@@ -424,7 +433,9 @@ def scan(raw: str, genre: str = "marketing", lang: str = "auto") -> dict:
                 i = j + 1
             else:
                 i += 1
-        triads = re.findall(r"\b[^\W\d_]+, [^\W\d_]+,? (?:и|and) [^\W\d_]+\b", ptext)
+        # Начало перечня — не после «слово, »: иначе хвост списка из четырёх-пяти считался
+        # «перечнем из трёх» (C-content 16.11.2026, C13).
+        triads = re.findall(r"(?<!,\s)\b[^\W\d_]+, [^\W\d_]+,? (?:и|and) [^\W\d_]+\b", ptext)
         if len(triads) >= 2:
             add("triads", "weak", start,
                 f"{_qty(len(triads), 'перечень', 'перечня', 'перечней')} из трёх в абзаце",
@@ -501,17 +512,19 @@ def main(argv: list[str] | None = None) -> int:
                     help="регистр: в news/academic штампы и канцелярит — info, в legal не ищутся")
     ap.add_argument("--lang", choices=["auto", "ru", "en"], default="auto")
     ap.add_argument("--out", help="полный отчёт в этот файл .json")
+    ap.add_argument("--force", action="store_true",
+                    help="перезаписать существующий файл, даже если его писал не papa-seo")
     args = ap.parse_args(argv)
     try:
-        out = check_out_path(args.out) if args.out else None
+        out = check_out_path(args.out, args.force) if args.out else None
         rep = scan(read_input(args.path), args.genre, args.lang)
         rep["input"] = "stdin" if args.path == "-" else os.path.basename(args.path)
     except (ValueError, OSError) as exc:
-        print(json.dumps({"tool": "deai_scan", "ok": False, "error": str(exc)}, ensure_ascii=False))
+        code = {"code": exc.code} if getattr(exc, "code", None) else {}
+        print(json.dumps({"tool": "deai_scan", "ok": False, "error": str(exc), **code}, ensure_ascii=False))
         return 2
     if out:
-        with open(out, "w", encoding="utf-8") as fh:
-            json.dump(rep, fh, ensure_ascii=False, indent=2)
+        write_report(out, rep, args.force)
         print(json.dumps({"tool": "deai_scan", "summary": rep["summary"], "out": out}, ensure_ascii=False))
     else:
         if len(rep["hits"]) > STDOUT_HITS:

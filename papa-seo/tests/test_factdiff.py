@@ -182,6 +182,18 @@ class TestCli(unittest.TestCase):
         self.assertEqual(data["out"], out)
         self.assertTrue(os.path.isfile(out))
 
+    def test_out_dotdot_and_foreign_file(self):
+        """0.2.3 (S-security №7): «..» в .json-пути проходил, чужой файл затирался молча."""
+        os.makedirs(os.path.join(self.tmp.name, "sub"))
+        self.assertEqual(run_cli([self.a, self.b, "--out",
+                                  os.path.join(self.tmp.name, "sub", "..", "x.json")])[0], 2)
+        foreign = os.path.join(self.tmp.name, "f.json")
+        with open(foreign, "w", encoding="utf-8") as fh:
+            fh.write("[]")
+        rc, data = run_cli([self.a, self.b, "--out", foreign])
+        self.assertEqual((rc, data.get("code")), (2, "out_exists"))
+        self.assertEqual(run_cli([self.a, self.b, "--out", foreign, "--force"])[0], 0)
+
     def test_refusals(self):
         self.assertEqual(run_cli([self.a, self.b, "--out", "../../x"])[0], 2)
         self.assertEqual(run_cli([self.a, os.path.join(self.tmp.name, "none.md")])[0], 2)

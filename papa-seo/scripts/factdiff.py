@@ -22,6 +22,9 @@ import re
 import sys
 from collections import Counter
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import http_safe  # noqa: E402
+
 VERSION = "0.1.0"
 MAX_BYTES = 10 * 1024 * 1024
 NOTE = (
@@ -102,15 +105,23 @@ def read_input(path: str) -> str:
     return data.decode("utf-8-sig", errors="replace")
 
 
-def check_out_path(path: str) -> str:
+def check_out_path(path: str, force: bool = False) -> str:
+    """--out пишет ровно в переданный путь .json; правила пути — общие (http_safe.safe_out_path):
+    без «..», не каталог, не симлинк, каталог существует, чужой существующий файл — только с --force."""
     if "\x00" in path or not path.lower().endswith(".json"):
         raise ValueError("--out: нужен путь к файлу .json")
-    ap = os.path.abspath(path)
-    if os.path.islink(ap) or os.path.isdir(ap):
-        raise ValueError("--out: путь — каталог или символическая ссылка")
-    if not os.path.isdir(os.path.dirname(ap)):
-        raise ValueError("--out: каталог для файла не существует")
-    return ap
+    try:
+        return http_safe.safe_out_path(path, force=force)
+    except http_safe.CliError as exc:
+        err = ValueError(f"--out: {exc.message}")
+        err.code = exc.code
+        raise err from None
+
+
+def write_report(out: str, report: dict, force: bool = False) -> None:
+    """Атомарно (временный файл + rename), с меткой papa-seo первой строкой JSON."""
+    http_safe.write_atomic(out, json.dumps(http_safe.stamp(report), ensure_ascii=False, indent=2),
+                           force=force)
 
 
 # ---------------------------------------------------------------- normalizers
@@ -349,17 +360,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("before", help="исходный файл")
     ap.add_argument("after", help="файл после правки")
     ap.add_argument("--out", help="полный отчёт в этот файл .json")
+    ap.add_argument("--force", action="store_true",
+                    help="перезаписать существующий файл, даже если его писал не papa-seo")
     args = ap.parse_args(argv)
     try:
-        out = check_out_path(args.out) if args.out else None
+        out = check_out_path(args.out, args.force) if args.out else None
         rep = compare(read_input(args.before), read_input(args.after))
         rep["before"], rep["after"] = os.path.basename(args.before), os.path.basename(args.after)
     except (ValueError, OSError) as exc:
-        print(json.dumps({"tool": "factdiff", "ok": False, "error": str(exc)}, ensure_ascii=False))
+        code = {"code": exc.code} if getattr(exc, "code", None) else {}
+        print(json.dumps({"tool": "factdiff", "ok": False, "error": str(exc), **code}, ensure_ascii=False))
         return 2
     if out:
-        with open(out, "w", encoding="utf-8") as fh:
-            json.dump(rep, fh, ensure_ascii=False, indent=2)
+        write_report(out, rep, args.force)
         print(json.dumps({"tool": "factdiff", "summary": rep["summary"], "out": out}, ensure_ascii=False))
     else:
         print(json.dumps(rep, ensure_ascii=False, indent=2))

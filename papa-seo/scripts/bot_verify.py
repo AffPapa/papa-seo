@@ -142,9 +142,10 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--max-ips", type=int, default=MAX_IPS_DEFAULT)
         p.add_argument("--only-claimed", action="store_true", help="look up only IPs whose UA claims a bot")
         p.add_argument("--out")
+        p.add_argument("--force", action="store_true", help="перезаписать существующий файл, даже если его писал не papa-seo")
         args = p.parse_args(argv)
         if args.out:
-            http_safe.safe_out_path(args.out)
+            http_safe.safe_out_path(args.out, force=args.force)
         if not args.ips and not args.log:
             raise http_safe.CliError("give IP addresses or --log", "bad_arguments")
         if not 1 <= args.max_ips <= 5000:
@@ -193,7 +194,8 @@ def main(argv: list[str] | None = None) -> int:
                   "rules": {k: list(v["domains"]) for k, v in VENDORS.items()},
                   "note": "Google: пользовательские загрузчики (google.com / googleusercontent.com) этой проверкой "
                           "не покрыты полностью; ИИ-боты сверяются по диапазонам IP вендора"}
-        return http_safe.emit(report, args.out, {"checked": len(rows), "verdicts": dict(verdicts)})
+        return http_safe.emit(report, args.out, {"checked": len(rows), "verdicts": dict(verdicts)},
+                              force=args.force)
 
     return http_safe.run_cli(body)
 

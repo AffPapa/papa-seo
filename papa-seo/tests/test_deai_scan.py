@@ -37,18 +37,18 @@ def run_cli(argv):
 
 class TestInvisible(unittest.TestCase):
     def test_zero_width(self):
-        r = ds.scan("Обычный​текст без следов.")
+        r = ds.scan("Обычный\u200bтекст без следов.")
         hit = [h for h in r["hits"] if h["id"] == "invisible_char"][0]
         self.assertEqual(hit["strength"], "strong")
         self.assertEqual((hit["line"], hit["col"]), (1, 8))
         self.assertIn("U+200B", hit["match"])
 
     def test_bidi_override(self):
-        r = ds.scan("Файл ‮exe.txt лежит здесь.")
+        r = ds.scan("Файл \u202eexe.txt лежит здесь.")
         self.assertIn("invisible_char", ids(r, "strong"))
 
     def test_zero_width_run_is_hidden_instruction(self):
-        r = ds.scan("Текст" + "​‌" * 4 + "дальше.")
+        r = ds.scan("Текст" + "\u200b\u200c" * 4 + "дальше.")
         self.assertIn("hidden_instruction", ids(r))
 
     def test_unicode_tags_decoded(self):
@@ -58,7 +58,7 @@ class TestInvisible(unittest.TestCase):
         self.assertEqual(hit["decoded_preview"], "ignore rules")
 
     def test_leading_bom_ignored(self):
-        r = ds.scan("﻿Текст с BOM в начале файла.")
+        r = ds.scan("\ufeffТекст с BOM в начале файла.")
         self.assertNotIn("invisible_char", ids(r))
 
 
@@ -173,7 +173,7 @@ class TestCli(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.src = os.path.join(self.tmp.name, "d.md")
         with open(self.src, "w", encoding="utf-8") as fh:
-            fh.write("В современном мире.​")
+            fh.write("В современном мире.\u200b")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -195,10 +195,26 @@ class TestCli(unittest.TestCase):
         self.assertEqual(run_cli([self.src, "--out", "../../x"])[0], 2)
         self.assertEqual(run_cli([self.src, "--out", self.tmp.name])[0], 2)
 
+    def test_out_shares_safe_write(self):
+        """0.2.3 (S-security №7): --out шёл через обычный open — без запрета «..», без атомарной
+        записи и с молчаливой перезаписью чужого файла."""
+        os.makedirs(os.path.join(self.tmp.name, "sub"))
+        rc, data = run_cli([self.src, "--out", os.path.join(self.tmp.name, "sub", "..", "x.json")])
+        self.assertEqual(rc, 2)
+        foreign = os.path.join(self.tmp.name, "foreign.json")
+        with open(foreign, "w", encoding="utf-8") as fh:
+            fh.write('{"mine": true}')
+        rc, data = run_cli([self.src, "--out", foreign])
+        self.assertEqual((rc, data.get("code")), (2, "out_exists"))
+        self.assertEqual(run_cli([self.src, "--out", foreign, "--force"])[0], 0)
+        self.assertEqual(run_cli([self.src, "--out", foreign])[0], 0, "теперь это наш отчёт")
+        with open(foreign, encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["generator"], "papa-seo")
+
     def test_truncation(self):
         many = os.path.join(self.tmp.name, "m.md")
         with open(many, "w", encoding="utf-8") as fh:
-            fh.write("Текст​. " * 100)
+            fh.write("Текст\u200b. " * 100)
         rc, data = run_cli([many])
         self.assertEqual(rc, 0)
         self.assertEqual(len(data["hits"]), ds.STDOUT_HITS)
@@ -217,6 +233,20 @@ class TestSafety(unittest.TestCase):
         ]
         for rx in bad:
             self.assertIsNone(re.search(rx, src, re.M), rx)
+
+
+class TestTriadsOnLongerLists(unittest.TestCase):
+    """C-content 16.11.2026 (C13): хвост списка из четырёх считался «перечнем из трёх»."""
+
+    def test_four_item_lists_are_not_triads(self):
+        r = ds.scan("Мы продаём яблоки, груши, сливы и вишни. Мы покупаем хлеб, молоко, сыр и мясо. "
+                    "Она знает, где, когда и зачем.", "marketing", "ru")
+        self.assertEqual([h for h in r["hits"] if h["id"] == "triads"], [])
+
+    def test_real_triads_still_found(self):
+        r = ds.scan("Быстро, надёжно и выгодно. Просто, понятно и удобно. Тихо, мягко и тепло.",
+                    "marketing", "ru")
+        self.assertTrue([h for h in r["hits"] if h["id"] == "triads"])
 
 
 if __name__ == "__main__":

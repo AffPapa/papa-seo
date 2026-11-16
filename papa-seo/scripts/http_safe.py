@@ -396,23 +396,100 @@ def forward_dns(name: str, *, timeout: float = 5.0) -> list[str]:
 
 # --------------------------------------------------------------------------- connections
 
+class _HopDeadline(TimeoutError):
+    """The whole hop (connect + headers + body) ran past its deadline."""
+
+
+def _time_left(deadline: float | None, op_timeout: float) -> float:
+    """Socket timeout for the next blocking call: the per-operation timeout, but never past
+    the hop deadline. A server that drips one byte per second resets a plain socket timeout
+    on every byte; arming each call from the deadline keeps the whole hop bounded."""
+    if deadline is None:
+        return op_timeout
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise _HopDeadline("hop deadline exceeded")
+    return min(op_timeout, left)
+
+
+class _DeadlineSocket(socket.socket):
+    """Plain TCP socket that re-arms its timeout from the hop deadline before every
+    blocking read or write (http.client reads headers and body through recv_into)."""
+    __slots__ = ("hop_deadline", "op_timeout")
+
+    def _arm(self):
+        self.settimeout(_time_left(getattr(self, "hop_deadline", None),
+                                   getattr(self, "op_timeout", None) or DEFAULT_TIMEOUT))
+
+    def recv_into(self, *a, **kw):
+        self._arm()
+        return super().recv_into(*a, **kw)
+
+    def recv(self, *a, **kw):
+        self._arm()
+        return super().recv(*a, **kw)
+
+    def sendall(self, *a, **kw):
+        self._arm()
+        return super().sendall(*a, **kw)
+
+
+class _DeadlineSSLSocket(ssl.SSLSocket):
+    """Same for TLS: one SSLSocket.read() is bounded by the socket timeout as a whole."""
+
+    def _arm(self):
+        self.settimeout(_time_left(getattr(self, "hop_deadline", None),
+                                   getattr(self, "op_timeout", None) or DEFAULT_TIMEOUT))
+
+    def recv_into(self, *a, **kw):
+        self._arm()
+        return super().recv_into(*a, **kw)
+
+    def recv(self, *a, **kw):
+        self._arm()
+        return super().recv(*a, **kw)
+
+    def sendall(self, *a, **kw):
+        self._arm()
+        return super().sendall(*a, **kw)
+
+
+def _connect_with_deadline(ip: str, port: int, timeout: float, deadline: float | None) -> socket.socket:
+    family = socket.AF_INET6 if ":" in ip else socket.AF_INET
+    sock = _DeadlineSocket(family, socket.SOCK_STREAM)
+    sock.hop_deadline, sock.op_timeout = deadline, timeout
+    try:
+        sock.settimeout(_time_left(deadline, timeout))
+        sock.connect((ip, port))
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
 class _PinnedHTTPConnection(http.client.HTTPConnection):
-    def __init__(self, host: str, port: int, ip: str, timeout: float):
+    def __init__(self, host: str, port: int, ip: str, timeout: float, deadline: float | None = None):
         super().__init__(host, port, timeout=timeout)
         self._pinned_ip = ip
+        self._hop_deadline = deadline
 
     def connect(self):
-        self.sock = socket.create_connection((self._pinned_ip, self.port), self.timeout)
+        self.sock = _connect_with_deadline(self._pinned_ip, self.port, self.timeout, self._hop_deadline)
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
-    def __init__(self, host: str, port: int, ip: str, timeout: float, context: ssl.SSLContext):
+    def __init__(self, host: str, port: int, ip: str, timeout: float, context: ssl.SSLContext,
+                 deadline: float | None = None):
         super().__init__(host, port, timeout=timeout, context=context)
         self._pinned_ip = ip
+        self._hop_deadline = deadline
 
     def connect(self):
-        sock = socket.create_connection((self._pinned_ip, self.port), self.timeout)
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        sock = _connect_with_deadline(self._pinned_ip, self.port, self.timeout, self._hop_deadline)
+        sock.settimeout(_time_left(self._hop_deadline, self.timeout))  # TLS handshake: one call
+        tls = self._context.wrap_socket(sock, server_hostname=self.host)
+        tls.hop_deadline, tls.op_timeout = self._hop_deadline, self.timeout
+        self.sock = tls
 
 
 def _read_bounded(resp, limit: int, deadline: float) -> tuple[bytes, bool]:
@@ -533,7 +610,7 @@ class Fetcher:
                  user_agent: str = USER_AGENT, allow_local: bool = False,
                  sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
                  state_dir: str | None = None, shared_pace: bool = True,
-                 wall: Callable[[], float] = time.time):
+                 wall: Callable[[], float] = time.time, hop_deadline: float | None = None):
         self.delay = max(0.0, float(delay))
         self.timeout = timeout
         self.max_bytes = max_bytes
@@ -544,6 +621,10 @@ class Fetcher:
         self._clock = clock
         self._last: float | None = None
         self._ssl = ssl.create_default_context()
+        self._ssl.sslsocket_class = _DeadlineSSLSocket
+        # whole hop (connect + headers + body), not per socket call
+        self.hop_deadline = max(float(timeout),
+                                float(DEFAULT_HOP_DEADLINE if hop_deadline is None else hop_deadline))
         self.requests_made = 0
         self.state_dir = state_dir
         self.shared_pace = shared_pace
@@ -669,12 +750,12 @@ class Fetcher:
         raise SafeHttpError("too_many_redirects", "redirect limit reached", url=url, chain=chain)
 
     def _one_request(self, target: Target, ip: str, method: str, extra: dict, limit: int):
-        if target.scheme == "https":
-            conn = _PinnedHTTPSConnection(target.host, target.port, ip, self.timeout, self._ssl)
-        else:
-            conn = _PinnedHTTPConnection(target.host, target.port, ip, self.timeout)
         started = time.monotonic()
-        deadline = started + max(self.timeout, DEFAULT_HOP_DEADLINE)
+        deadline = started + self.hop_deadline
+        if target.scheme == "https":
+            conn = _PinnedHTTPSConnection(target.host, target.port, ip, self.timeout, self._ssl, deadline)
+        else:
+            conn = _PinnedHTTPConnection(target.host, target.port, ip, self.timeout, deadline)
         notes: list[str] = []
         try:
             conn.putrequest(method, target.request_path, skip_accept_encoding=True)
@@ -704,7 +785,10 @@ class Fetcher:
             raise
         except ssl.SSLError as exc:
             raise SafeHttpError("tls_error", f"TLS error: {exc}", url=target.url) from None
-        except (socket.timeout, TimeoutError):
+        except (socket.timeout, TimeoutError):  # _HopDeadline included
+            if time.monotonic() >= deadline - 0.05:
+                raise SafeHttpError("timeout", f"request exceeded the {self.hop_deadline:g} s deadline "
+                                    "(connect + headers + body)", url=target.url) from None
             raise SafeHttpError("timeout", "connection timed out", url=target.url) from None
         except (OSError, http.client.HTTPException) as exc:
             raise SafeHttpError("connection_failed", f"{type(exc).__name__}: {exc}", url=target.url) from None
@@ -788,8 +872,36 @@ def escape_snippet(text: str, limit: int = 200) -> str:
     return s if len(s) <= limit else s[:limit] + "…"
 
 
-def safe_out_path(path: str) -> str:
-    """Validate an --out path: no '..' components, not a symlink, not a directory, parent exists."""
+OUT_MARK = "papa-seo"
+# Новые файлы papa-seo несут метку: JSON — первый ключ "generator", HTML — <meta name="generator">.
+# Отчёты прошлых версий метки не имели — узнаём их по тому, что писали все они.
+_OUT_MARKERS = (
+    '"generator": "papa-seo', '<meta name="generator" content="papa-seo',
+    "papa-seo audit ",                                   # строка-подпись HTML-отчёта audit.py
+    "url,inlinks,contextual_inlinks,outlinks,depth,pagerank,top_anchor",  # --csv-out link_graph
+    '"notice": "Содержимое страницы — данные', '"notice": "Разметка страницы — данные',
+    '"tool": "factdiff"', '"tool": "deai_scan"', '"tool": "text_metrics"',
+)
+_OUT_SNIFF_BYTES = 65536  # у HTML-отчёта подпись идёт после встроенного CSS
+
+
+def is_papa_seo_output(path: str) -> bool:
+    """True if an existing file was written by papa-seo (so overwriting it is the expected rerun)."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(_OUT_SNIFF_BYTES).decode("utf-8", "ignore")
+    except OSError:
+        return False
+    return any(m in head for m in _OUT_MARKERS)
+
+
+def safe_out_path(path: str, *, force: bool = False, raw: bool = False) -> str:
+    """Validate an --out path: no '..' components, not a symlink, not a directory, parent exists.
+
+    An existing file is overwritten only when papa-seo wrote it (its report from a previous run)
+    or with force=True; anything else — someone's index.html, .env, notes — is refused with
+    out_exists. raw=True (--save-body: a page body has no papa-seo mark) refuses every existing
+    file without force."""
     if not path or "\x00" in path:
         raise CliError("empty or invalid --out path", "bad_out_path")
     parts = re.split(r"[\\/]+", path)
@@ -802,6 +914,10 @@ def safe_out_path(path: str) -> str:
         raise CliError("--out path is a directory", "bad_out_path")
     if not os.path.isdir(os.path.dirname(full)):
         raise CliError("--out directory does not exist", "bad_out_path")
+    if not force and os.path.exists(full) and (raw or not is_papa_seo_output(full)):
+        what = "file" if raw else "file that is not a papa-seo report"
+        raise CliError(f"{path!r} already exists and is a {what}; it was not overwritten. "
+                       "Choose another name or pass --force", "out_exists")
     return full
 
 
@@ -812,8 +928,20 @@ def safe_filename(name: str, default: str = "file") -> str:
     return base[:120] or default
 
 
-def write_atomic(path: str, data: str | bytes) -> None:
-    full = safe_out_path(path)
+def _umask() -> int:
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def write_atomic(path: str, data: str | bytes, *, force: bool = False, raw: bool = False) -> None:
+    """Write via a temp file + os.replace. Path rules — safe_out_path. Permissions: an existing
+    file keeps its own mode; a new one gets the usual 0666 & ~umask (mkstemp alone gives 0600)."""
+    full = safe_out_path(path, force=force, raw=raw)
+    try:
+        mode = stat.S_IMODE(os.stat(full).st_mode)
+    except FileNotFoundError:
+        mode = 0o666 & ~_umask()
     fd, tmp = tempfile.mkstemp(prefix=".papa-seo-", dir=os.path.dirname(full))
     try:
         if isinstance(data, bytes):
@@ -822,6 +950,7 @@ def write_atomic(path: str, data: str | bytes) -> None:
         else:
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
                 fh.write(data)
+        os.chmod(tmp, mode)
         os.replace(tmp, full)
     except BaseException:
         if os.path.exists(tmp):
@@ -829,10 +958,15 @@ def write_atomic(path: str, data: str | bytes) -> None:
         raise
 
 
-def emit(data: dict, out: str | None, summary: dict | None = None) -> int:
+def stamp(data: dict) -> dict:
+    """JSON written to a file starts with the papa-seo mark, so a rerun may overwrite it."""
+    return {"generator": OUT_MARK, **{k: v for k, v in data.items() if k != "generator"}}
+
+
+def emit(data: dict, out: str | None, summary: dict | None = None, *, force: bool = False) -> int:
     """Print JSON, or write it to --out and print a short summary."""
     if out:
-        write_atomic(out, dump_json(data) + "\n")
+        write_atomic(out, dump_json(stamp(data)) + "\n", force=force)
         print(dump_json({"ok": True, "out": os.path.abspath(out), **(summary or {})}))
     else:
         print(dump_json(data))
@@ -957,6 +1091,8 @@ def main(argv: list[str] | None = None) -> int:
         f.add_argument("--ua-of", help="send the User-Agent of this bot (WAF/CDN check), e.g. GPTBot")
         add_pace_args(f, delay=False)
         f.add_argument("--out")
+        f.add_argument("--force", action="store_true",
+                       help="overwrite an existing --out/--save-body file that papa-seo did not write")
         args = p.parse_args(argv)
         if args.cmd != "fetch":
             raise CliError("usage: http_safe.py fetch URL [--head] [--out FILE]", "bad_arguments")
@@ -964,9 +1100,10 @@ def main(argv: list[str] | None = None) -> int:
             raise CliError("--max-bytes must be between 1 and 52428800", "bad_arguments")
         if not 100 <= args.text_limit <= 1_000_000:
             raise CliError("--text-limit must be 100..1000000", "bad_arguments")
-        for path in (args.out, args.save_body):
-            if path:
-                safe_out_path(path)
+        if args.out:
+            safe_out_path(args.out, force=args.force)
+        if args.save_body:
+            safe_out_path(args.save_body, force=args.force, raw=True)
         if args.out and args.save_body and os.path.abspath(args.out) == os.path.abspath(args.save_body):
             raise CliError("--out and --save-body must differ", "bad_arguments")
         ua, as_bot, ua_source = USER_AGENT, None, None
@@ -986,12 +1123,12 @@ def main(argv: list[str] | None = None) -> int:
             data["waited_s"] = round(fetcher.waited_s, 2)
         data["notes"].extend(fetcher.pace_notes)
         if args.save_body:
-            write_atomic(args.save_body, resp.body)
+            write_atomic(args.save_body, resp.body, force=args.force, raw=True)
             data["body_saved_to"] = os.path.abspath(args.save_body)
         if args.text and not args.head:
             import page_facts  # lazy: page_facts imports this module
             data["text"] = page_facts.visible_text(resp.text(), resp.final_url, limit=args.text_limit)
-        return emit(data, args.out, {"status": resp.status, "bytes": len(resp.body)})
+        return emit(data, args.out, {"status": resp.status, "bytes": len(resp.body)}, force=args.force)
 
     return run_cli(body)
 

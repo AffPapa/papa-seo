@@ -159,6 +159,12 @@ _WEAK = [
     r"(?:выполните|запустите)\s+(?:команд|скрипт)\w*",
 ]
 STRONG_RE = [re.compile(p, re.I) for p in _STRONG]
+# Попытка перехватить управление моделью («игнорируй прежние инструкции», «ты теперь ИИ», «покажи
+# секреты»): такой текст остаётся high даже в свёрнутой вкладке — щелчок по вкладке его не оправдывает.
+_OVERRIDE_HEADS = (r"\bignore", r"\bdisregard", r"\bforget", r"\byou\s+are", r"\b(?:read|print",
+                   r"(?<!\w)игнорируй", r"(?<!\w)забудь", r"(?<!\w)не\s+обращай", r"(?<!\w)ты\s",
+                   r"(?<!\w)(?:прочитай")
+OVERRIDE_RE = [rx for rx in STRONG_RE if rx.pattern.startswith(_OVERRIDE_HEADS)]
 WEAK_RE = [re.compile(p, re.I) for p in _WEAK]
 
 
@@ -175,6 +181,12 @@ def scan_instruction_text(text: str) -> dict:
     strong = [http_safe.escape_snippet(m.group(0), 60) for rx in STRONG_RE for m in [rx.search(norm)] if m]
     weak = [http_safe.escape_snippet(m.group(0), 40) for rx in WEAK_RE for m in [rx.search(norm)] if m]
     return {"strong": strong, "weak": weak}
+
+
+def _plain_in(fragment: str, norm_visible: str) -> bool:
+    """Совпавший фрагмент (после escape_snippet) есть в видимом тексте."""
+    frag = fragment.rstrip("…").strip()
+    return bool(frag) and "<U+" not in frag and normalize_for_match(frag).lower() in norm_visible
 
 
 def _finding(where: str, reason: str, text: str, match: dict, source_type: str, url: str | None,
@@ -306,9 +318,23 @@ def _hidden_reason(tag: str, attrs: dict) -> str | None:
     style = re.sub(r"\s+", "", (attrs.get("style") or "").lower())
     if style and _HIDDEN_STYLE.search(style):
         return "inline_style"
-    if _attr_tokens(attrs.get("class")) & HIDDEN_CLASSES:
+    tokens = _attr_tokens(attrs.get("class"))
+    if tokens & HIDDEN_CLASSES and not _responsive_show(tokens):
         return "hidden_class"
     return None
+
+
+# Адаптивное скрытие — не скрытие: `d-none d-md-block` (Bootstrap) и `hidden md:flex` (Tailwind)
+# прячут элемент только на узком экране, с брейкпоинта он виден. QA 16.11.2026: крошки
+# dentalfantasy.ru и moysklad.ru под `d-none d-lg-inline-block` получили high «скрытая разметка».
+_SHOWN_DISPLAY = r"(?:block|inline|inline-block|flex|inline-flex|grid|inline-grid|table|table-cell|" \
+                 r"table-row|table-caption|contents|flow-root|list-item)"
+_RESPONSIVE_SHOW = re.compile(r"^(?:d-(?:sm|md|lg|xl|xxl)-" + _SHOWN_DISPLAY +
+                              r"|(?:sm|md|lg|xl|2xl|min-\[[^\]]+\]):" + _SHOWN_DISPLAY + r")$")
+
+
+def _responsive_show(tokens: set) -> bool:
+    return any(_RESPONSIVE_SHOW.match(t) for t in tokens)
 
 
 # Аватар, иконка, логотип или спрайт кандидатом в LCP не бывает: QA 30.10.2026 назвал «вероятным
@@ -337,6 +363,34 @@ DECORATIVE_PARTS = re.compile(
     r"avatar|userpic|icon|ico[-_/]|logo|sprite|badge|emoji|flag|placeholder|pixel|spacer|blank|"
     r"loader|spinner|star|rating|arrow|chevron|bullet|divider|shim", re.I)
 LCP_MIN_SIDE = 100  # ориентир редактора: меньше — не первый экран, а деталь интерфейса
+
+
+# Счётчик, а не картинка: пиксель Метрики в <noscript>, 1×1, вынесенный за экран. Ни на CLS, ни на
+# доступность он не влияет, а в images.dimensions стоял «1 из 24» в топ-3 страницы (QA 16.11.2026,
+# moysklad.ru: <noscript><img src="https://mc.yandex.ru/watch/…" style="position:absolute;left:-9999px">).
+_TRACKER_SRC = re.compile(
+    r"//(?:mc\.yandex\.(?:ru|com|by|kz|ua|com\.tr)/watch|www\.facebook\.com/tr\b|"
+    r"top-fwz1\.mail\.ru/counter|counter\.yadro\.ru/hit|vk\.com/rtrg|"
+    r"www\.googletagmanager\.com/ns\.html|px\.ads\.linkedin\.com/collect|"
+    r"bat\.bing\.com/action|ct\.pinterest\.com/v3|analytics\.tiktok\.com/i18n/pixel)", re.I)
+_OFFSCREEN_STYLE = re.compile(r"(?:left|top|right|margin-left|text-indent):-\d{3,}|display:none|"
+                              r"visibility:hidden")
+
+
+def _tracking_image(src: str, attrs: dict, *, in_noscript: bool) -> str | None:
+    """Почему <img> — счётчик, а не содержимое страницы. None — обычная картинка."""
+    if in_noscript:
+        return "noscript"
+    if src and _TRACKER_SRC.search(src):
+        return "counter_url"
+    w, h = _px(attrs.get("width")), _px(attrs.get("height"))
+    if w is not None and h is not None and w <= 1 and h <= 1:
+        return f"pixel_{w}x{h}"
+    style = re.sub(r"\s+", "", (attrs.get("style") or "").lower())
+    if style and _OFFSCREEN_STYLE.search(style) and re.search(r"width:[01]px|height:[01]px|"
+                                                               r"position:absolute", style):
+        return "offscreen"
+    return None
 
 
 def _decorative_image(src: str, attrs: dict) -> str | None:
@@ -415,6 +469,7 @@ class PageParser(HTMLParser):
         self.controls_ids: set[str] = set()
         self.attr_texts: list[tuple[str, str, int]] = []
         self.itemtypes: list[str] = []
+        self.time_datetimes: list[str] = []
         self.rdfa_types: list[str] = []
         self.visible_text: list[str] = []
         self.main_text: list[str] = []
@@ -523,6 +578,10 @@ class PageParser(HTMLParser):
                                         "in_head": self._in_head or not self.stack or self._in_head_like()})
         elif tag == "img":
             self._image(attrs, line)
+        elif tag == "time" and attrs.get("datetime") and self._hidden_ancestor() is None:
+            # <time datetime> — машиночитаемая дата видимого текста «13 Апр» (K-markup, Б4)
+            if len(self.time_datetimes) < 200:
+                self.time_datetimes.append(attrs["datetime"].strip()[:40])
         self._collect_markup(tag, attrs, line)
         for name in ("alt", "title", "aria-label", "placeholder", "value"):
             val = attrs.get(name)
@@ -630,6 +689,7 @@ class PageParser(HTMLParser):
             "format": ext.group(1) if ext else None, "region": self._region(), "line": line,
             "hidden": self._hidden_ancestor() is not None,
             "decorative": _decorative_image(src, attrs),
+            "tracking": _tracking_image(src, attrs, in_noscript=self._noscript > 0),
         })
 
     # -- markup and resource collection (facts only, no verdicts)
@@ -889,7 +949,8 @@ class PageParser(HTMLParser):
             text = " ".join(el.buf).strip()
             if text:
                 self.hidden_blocks.append({"reason": el.hidden, "text": text, "line": el.line, "nav": el.nav,
-                                           "id": el.el_id, "chars": el.chars, "link_chars": el.link_chars})
+                                           "id": el.el_id, "chars": el.chars, "link_chars": el.link_chars,
+                                           "panel": el.panel})
         if self._root_stack and self._root_stack[-1][1] == len(self.stack) + 1:
             rid, _ = self._root_stack.pop()
             self.app_roots[rid] = self.app_roots.get(rid, 0) + el.text_len
@@ -1061,8 +1122,14 @@ def _parse_jsonld(raw: str, line: int) -> dict:
     except RecursionError:
         block["error"] = "nesting too deep"
         return block
-    except ValueError as exc:
+    except json.JSONDecodeError as exc:
         block["error"] = f"invalid JSON: {exc.msg} at line {exc.lineno} col {exc.colno}"
+        block["snippet"] = http_safe.escape_snippet(text, 160)
+        return block
+    except ValueError as exc:
+        # Не JSONDecodeError: например, целое длиннее int_max_str_digits (4300 цифр,
+        # Python 3.11+). У такого исключения нет .msg/.lineno — раньше это роняло прогон.
+        block["error"] = f"invalid JSON: {exc}"
         block["snippet"] = http_safe.escape_snippet(text, 160)
         return block
     if not _json_depth_ok(data):
@@ -1107,10 +1174,26 @@ _RU_MONTHS = {m: i for i, m in enumerate(("января", "февраля", "м�
                                           "сентября", "октября", "ноября", "декабря"), start=1)}
 _EN_MONTHS = {m: i for i, m in enumerate(("january", "february", "march", "april", "may", "june", "july", "august",
                                           "september", "october", "november", "december"), start=1)}
+# Сокращённые месяцы: «13 Апр, 16:49», «5 сент. 2025», «Apr 13, 2026». QA 16.11.2026: на
+# bookmaker-ratings.ru dateModified стоял в видимом <time>13 Апр</time>, а скрипт писал «нет в тексте».
+_RU_MONTH_ABBR = {"янв": 1, "фев": 2, "февр": 2, "мар": 3, "апр": 4, "май": 5, "июн": 6, "июл": 7,
+                  "авг": 8, "сен": 9, "сент": 9, "окт": 10, "ноя": 11, "нояб": 11, "дек": 12}
+_EN_MONTH_ABBR = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8, "sep": 9,
+                  "sept": 9, "oct": 10, "nov": 11, "dec": 12}
+_RU_MONTH_ANY = {**_RU_MONTHS, **_RU_MONTH_ABBR}
+_EN_MONTH_ANY = {**_EN_MONTHS, **_EN_MONTH_ABBR}
+
+
+def _month_alt(names) -> str:
+    return "|".join(sorted(names, key=len, reverse=True))  # длинные раньше: «марта» до «мар»
+
+
 _ISO_DATE_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})-(\d{2})-(\d{2})(?!\d)")
 _DOT_DATE_RE = re.compile(r"(?<![\d.])(\d{1,2})\.(\d{1,2})\.((?:19|20)\d{2})(?!\d)")
-_RU_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})\s+(" + "|".join(_RU_MONTHS) + r")(?:\s+((?:19|20)\d{2}))?", re.I)
-_EN_DATE_RE = re.compile(r"\b(" + "|".join(_EN_MONTHS) + r")\s+(\d{1,2}),?\s+((?:19|20)\d{2})\b", re.I)
+_RU_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})\s+(" + _month_alt(_RU_MONTH_ANY) +
+                         r")(?![а-яё])\.?(?:,?\s+((?:19|20)\d{2}))?", re.I)
+_EN_DATE_RE = re.compile(r"\b(" + _month_alt(_EN_MONTH_ANY) +
+                         r")\b\.?\s+(\d{1,2}),?\s+((?:19|20)\d{2})\b", re.I)
 _TIME_RE = re.compile(r"(?<![\d:])([01]?\d|2[0-3])[:.]([0-5]\d)(?![\d:])")
 _JSONLD_DT_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?")
 
@@ -1132,9 +1215,9 @@ def _text_dates(text: str) -> tuple[list[str], list[str]]:
     for m in _DOT_DATE_RE.finditer(text):
         add(m.group(3), m.group(2), m.group(1))
     for m in _RU_DATE_RE.finditer(text):
-        add(m.group(3), _RU_MONTHS[m.group(2).lower()], m.group(1))
+        add(m.group(3), _RU_MONTH_ANY[m.group(2).lower()], m.group(1))
     for m in _EN_DATE_RE.finditer(text):
-        add(m.group(3), _EN_MONTHS[m.group(1).lower()], m.group(2))
+        add(m.group(3), _EN_MONTH_ANY[m.group(1).lower()], m.group(2))
     times: list[str] = []
     for m in _TIME_RE.finditer(text):
         v = f"{int(m.group(1)):02d}:{m.group(2)}"
@@ -1150,13 +1233,26 @@ def _is_russian(lang: str | None, text: str) -> bool:
     return bool(letters) and sum(1 for c in letters if "\u0400" <= c <= "\u04ff") / len(letters) > 0.5
 
 
-def compare_dates(jsonld_blocks: list[dict], visible: str, lang: str | None) -> dict:
+# Дата загрузки видео на странице обычно не печатается — сверять её с текстом незачем (Б4).
+_DATES_NOT_IN_TEXT = {"uploadDate"}
+
+
+def compare_dates(jsonld_blocks: list[dict], visible: str, lang: str | None,
+                  time_datetimes: list[str] | None = None) -> dict:
     """JSON-LD dates next to dates/times found in the visible text. Heuristic flags only."""
     text_dates, text_times = _text_dates(visible)
+    for dt in time_datetimes or []:
+        m = _JSONLD_DT_RE.match(dt)
+        if m and f"{m.group(1)}-{m.group(2)}-{m.group(3)}" not in text_dates:
+            text_dates.append(f"{m.group(1)}-{m.group(2)}-{m.group(3)}")
     rows, flags = [], []
+    seen: set = set()
     ru = _is_russian(lang, visible)
     for b in jsonld_blocks:
         for d in b.get("dates", []):
+            if d.get("key") in _DATES_NOT_IN_TEXT or (d.get("key"), d.get("value")) in seen:
+                continue  # одна дата у двух сущностей — одна строка, а не две
+            seen.add((d.get("key"), d.get("value")))
             m = _JSONLD_DT_RE.match(d["value"])
             row = dict(d, line=b["line"])
             if not m:
@@ -1554,7 +1650,9 @@ CHECK_META: dict[str, tuple[str, str, str, str, str, str]] = {
                              "contract"),
     "markup.date_vs_text": ("markup", "даты разметки против текста",
                             "даты JSON-LD против дат из видимого текста", "medium",
-                            "Google structured data: Article; facts-2026 §6", "contract"),
+                            "Google Search Central «Influence your byline dates» "
+                            "(developers.google.com/search/docs/appearance/publication-dates); "
+                            "facts-2026 §6", "contract"),
     "markup.og_type_extra": ("markup", "доп. свойства по og:type",
                              "для article — article:published_time/author, для product — "
                              "product:price:*, и т. д.", "info", S_OGP, "contract"),
@@ -1598,6 +1696,10 @@ class _Checks:
             row["value"] = value
         if note:
             row["note"] = note
+        if severity and status in ("warn", "fail") and severity != sev:
+            # Серьёзность снижена по контексту этой страницы (слайдер, один замер…): audit.py
+            # не должен возвращать ей серьёзность из реестра.
+            row["severity_by_context"] = True
         self.rows.append(row)
         return row
 
@@ -2582,10 +2684,20 @@ def doc_and_header_checks(ck: _Checks, parser: PageParser, headers: dict, fetch:
             cdn = next((f"{k}: {headers[k]}" for k in ("cf-cache-status", "x-cache", "x-cache-status",
                                                         "x-vercel-cache") if (headers or {}).get(k)), "")
             cdn_note = f"; кэш CDN — {cdn}" if cdn else ""
-            ck.add("speed.ttfb", status, f"Первый байт ответа за {ms} мс (один замер{cdn_note})",
-                   value=ms,
-                   note="Один замер — не метрика: ориентир web.dev ≤ 800 мс / > 1800 мс плохо, "
-                        "и TTFB в Core Web Vitals не входит")
+            note = ("Один замер — не метрика: ориентир web.dev ≤ 800 мс / > 1800 мс плохо, "
+                    "и TTFB в Core Web Vitals не входит")
+            # Холодный кэш CDN (MISS/EXPIRED): повторный запрос, скорее всего, придёт из кэша в разы
+            # быстрее. M-sonnet 16.11.2026: 1147 мс при MISS стояли первыми, повтор HIT — 60–133 мс.
+            cold = bool(re.search(r"\b(?:miss|expired)\b", cdn.split(":", 1)[-1], re.I)) if cdn else False
+            if status != "pass" and cold:
+                ck.add("speed.ttfb", "info",
+                       f"Первый байт ответа за {ms} мс при холодном кэше CDN ({cdn}); один замер — "
+                       "повторите запрос, прежде чем считать сервер медленным", value=ms, note=note)
+            else:
+                # Один замер — слабый сигнал: выше low в очереди он не поднимается и не обгоняет
+                # находки по разметке и индексации (QA 16.11.2026: TTFB в топ-6 на всех 5 сайтах).
+                ck.add("speed.ttfb", status, f"Первый байт ответа за {ms} мс (один замер{cdn_note})",
+                       value=ms, note=note, severity="low" if status != "pass" else None)
         # В chain лежит и сам итоговый ответ, поэтому «нет редиректов» — это chain длиной 1.
         # Считаем только шаги, которые и были перенаправлением (3xx с Location).
         chain = fetch.get("chain") or []
@@ -2847,6 +2959,7 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
     base_host = _host_key(base) if base else ""
     counts = Counter()
     by_region = Counter()
+    nofollow_internal_hrefs: list[str] = []
     for ln in parser.links:
         counts[ln["kind"]] += 1
         if ln["kind"] == "http":
@@ -2856,6 +2969,12 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
             by_region[ln["region"]] += 1
             if set(ln["rel"]) & {"nofollow", "ugc", "sponsored"}:
                 counts["nofollow_like"] += 1
+            # Свой адрес с голым nofollow (без ugc/sponsored) — считается по всем ссылкам,
+            # а не по первым 300 в списке links: иначе ссылки в подвале выпадали из счёта.
+            if internal and "nofollow" in ln["rel"] and not set(ln["rel"]) & {"ugc", "sponsored"}:
+                counts["nofollow_internal"] += 1
+                if len(nofollow_internal_hrefs) < 10:
+                    nofollow_internal_hrefs.append(ln["href"])
             if not ln["text"] and not ln["aria_label"]:
                 counts["empty_anchor"] += 1
         for k in ("text", "aria_label"):
@@ -2866,7 +2985,9 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
 
     # images
     img_counts = Counter(i["alt_status"] for i in parser.images)
-    img_counts["no_dimensions"] = sum(1 for i in parser.images if not (i["width"] and i["height"]))
+    img_counts["no_dimensions"] = sum(1 for i in parser.images
+                                      if not (i["width"] and i["height"]) and not i["tracking"])
+    img_counts["tracking"] = sum(1 for i in parser.images if i["tracking"])
     img_counts["lazy"] = sum(1 for i in parser.images if (i["loading"] or "").lower() == "lazy")
     for i in parser.images:
         if i["alt"]:
@@ -2882,7 +3003,7 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
     visible = " ".join(parser.visible_text)
     words = len(_WORD_RE.findall(visible))
     words_main = len(_WORD_RE.findall(" ".join(parser.main_text))) if parser.main_found else None
-    dates = compare_dates(jsonld, visible, parser.html_lang)
+    dates = compare_dates(jsonld, visible, parser.html_lang, parser.time_datetimes)
     flags.extend(dates.pop("flags"))
     noscript = " ".join(parser.noscript_text).lower()
     csr_signals = []
@@ -2918,10 +3039,27 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
             hidden_nav.append({"line": line, "hidden_by": reason, "nav": nav, "matched": match["weak"],
                                "evidence": http_safe.escape_snippet(text, 120)})
             continue
+        panel = blk.get("panel") or (f"aria-controls:{blk['id']}" if blk.get("id")
+                                     and blk["id"] in parser.controls_ids else None)
+        if panel and not any(rx.search(normalize_for_match(text)) for rx in OVERRIDE_RE):
+            # Неактивная вкладка, аккордеон, слайд: текст откроется по щелчку, это обычный UI,
+            # а не попытка спрятать его от читателя (vs16-E 16.11.2026: 11 из 33 страниц
+            # с вкладками «установка в Claude Code / Codex / Cursor» — ложные high).
+            # Сам текст при этом всё равно данные: строка остаётся, но low и с пометкой.
+            f = _finding("hidden_element", reason, text, match, source_type, url, line)
+            f.update(severity="low", status="hypothesis", panel=panel,
+                     observation="Текст, обращённый к ИИ/агенту, лежит в свёрнутой панели "
+                                 f"({panel}): читатель увидит его по щелчку")
+            findings.append(f)
+            continue
         findings.append(_finding("hidden_element", reason, text, match, source_type, url, line))
+    vis_norm = normalize_for_match(visible).lower()
     for raw, line in parser.jsonld_raw:
         match = scan_instruction_text(raw)
-        if match["strong"]:
+        # То же самое видно на странице — значит, это не спрятанный текст, а копия видимого
+        # (описание организации, название продукта). vs16-E 16.11.2026: Organization.description.
+        shown = [m for m in match["strong"] if _plain_in(m, vis_norm)]
+        if match["strong"] and len(shown) < len(match["strong"]):
             findings.append(_finding("json_ld", "structured_data", raw, match, source_type, url, line))
     for stype, raw, line in parser.other_scripts_data:
         match = scan_instruction_text(raw)
@@ -2963,7 +3101,8 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
     resources = resource_checks(ck, parser, doc_bytes if doc_bytes is not None
                                 else len(html.encode("utf-8", "replace")), parser.images, base_host,
                                 refresh)
-    images_block = image_checks(ck, parser.images, parser)
+    content_images = [i for i in parser.images if not i["tracking"]]
+    images_block = image_checks(ck, content_images, parser)
     markup = markup_checks(ck, parser)
     pagination = pagination_checks(ck, url, canonicals, parser.link_tags, parser)
     document = doc_and_header_checks(ck, parser, headers, fetch, robots, visible, dates, og,
@@ -2993,7 +3132,8 @@ def analyze_html(html: str, *, url: str | None = None, source_type: str = "user_
         "hreflang": hreflang,
         "headings": [{**h, "text": esc(h["text"], 200)} for h in parser.headings[:200]],
         "heading_counts": dict(Counter(f"h{h['level']}" for h in parser.headings)),
-        "links_summary": dict(counts) | {"by_region": dict(by_region), "total": len(parser.links)},
+        "links_summary": dict(counts) | {"by_region": dict(by_region), "total": len(parser.links),
+                                         "nofollow_internal_hrefs": nofollow_internal_hrefs},
         "links": links_out, "links_truncated": len(parser.links) > len(links_out),
         "images_summary": dict(img_counts) | {"total": len(parser.images)},
         "images": images_out, "images_truncated": len(parser.images) > len(images_out),
@@ -3076,14 +3216,15 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--full", action="store_true", help="do not cap link/image lists")
         http_safe.add_pace_args(p)
         p.add_argument("--out")
+        p.add_argument("--force", action="store_true", help="перезаписать существующий файл, даже если его писал не papa-seo")
         args = p.parse_args(argv)
         if args.out:
-            http_safe.safe_out_path(args.out)
+            http_safe.safe_out_path(args.out, force=args.force)
         if args.list_checks:
             rows = check_rows()
             return http_safe.emit({"checks": rows, "count": len(rows),
                                    "note": "Серьёзность — наша по умолчанию; registry.json главнее."},
-                                  args.out, {"count": len(rows)})
+                                  args.out, {"count": len(rows)}, force=args.force)
         if bool(args.source) == bool(args.urls_file):
             raise http_safe.CliError("give a file/URL or --urls-file", "bad_arguments")
         delay = http_safe.check_delay(args.delay)
@@ -3108,7 +3249,7 @@ def main(argv: list[str] | None = None) -> int:
                       "errors": sum(1 for x in pages if "error" in x)}
             summary = {"count": len(pages), "errors": report["errors"],
                        "hidden_instructions": sum(len(x.get("hidden_instructions", [])) for x in pages)}
-            return http_safe.emit(report, args.out, summary)
+            return http_safe.emit(report, args.out, summary, force=args.force)
         if http_safe.is_url(args.source):
             result = facts_for_url(args.source, http_safe.Fetcher(delay=delay, state_dir=state_dir),
                                    list_limits=not args.full)
@@ -3125,7 +3266,7 @@ def main(argv: list[str] | None = None) -> int:
             result["fetch"] = {"path": os.path.abspath(args.source), "truncated": truncated, "bytes": len(data)}
         summary = {"title": result["title"], "hidden_instructions": len(result["hidden_instructions"]),
                    "flags": result["flags"]}
-        return http_safe.emit(result, args.out, summary)
+        return http_safe.emit(result, args.out, summary, force=args.force)
 
     return http_safe.run_cli(body)
 

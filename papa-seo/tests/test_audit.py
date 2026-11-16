@@ -300,8 +300,13 @@ class TestReport(unittest.TestCase):
 
     def test_fix_first_sorted_by_severity(self):
         rep = self.report(HOSTILE, base="https://example.net/remont/")
-        order = [au.SEVERITY_RANK[i["severity"]] for i in rep["fix_first"]]
-        self.assertEqual(order, sorted(order))
+        # Ориентиры редактора идут после требований (QUEUE_RULE), внутри каждой части — по тяжести.
+        for editor in (False, True):
+            order = [au.SEVERITY_RANK[i["severity"]] for i in rep["fix_first"]
+                     if bool(i.get("editor_guideline")) is editor]
+            self.assertEqual(order, sorted(order))
+        flags = [bool(i.get("editor_guideline")) for i in rep["fix_first"]]
+        self.assertEqual(flags, sorted(flags))
         self.assertTrue(all(i["verdict"] in (au.BAD, au.WARN) for i in rep["fix_first"]))
 
     def test_json_is_serialisable(self):
@@ -486,6 +491,290 @@ class TestManyPages(unittest.TestCase):
         self.assertEqual(site_rows["site.pages_noindex"]["verdict"], au.OK)
 
 
+class TestOnePageDoesNotSinkTheRun(unittest.TestCase):
+    """0.2.3 (S-security №1): страница с JSON-LD-числом в 4301 цифру роняла весь прогон —
+    и одиночный, и --pages/--site. Теперь одиночный разбор отчитывается о блоке,
+    а внутренняя ошибка одной страницы в многостраничном режиме ложится в эту страницу."""
+
+    BIG = ('<!doctype html><html lang="ru"><head><title>Длинное число</title>'
+           '<script type="application/ld+json">{"@type":"Thing","n":' + "9" * 4301 +
+           '}</script></head><body><h1>x</h1></body></html>')
+
+    def test_single_file_with_huge_integer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "big.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(self.BIG)
+            rc, out = run_cli([path, "--base-url", "https://example.com/", "--brief"])
+        brief = json.loads(out)
+        self.assertNotIn("error", brief)
+        self.assertEqual(rc, 0)
+        ids = [f["id"] for f in brief["findings"]]
+        self.assertIn("markup.jsonld_parses", ids)
+
+    def test_internal_error_on_one_page_keeps_the_others(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good = os.path.join(tmp, "good.html")
+            bad = os.path.join(tmp, "bad.html")
+            with open(BASIC, encoding="utf-8") as src, open(good, "w", encoding="utf-8") as fh:
+                fh.write(src.read())
+            with open(bad, "w", encoding="utf-8") as fh:
+                fh.write(self.BIG)
+            listing = os.path.join(tmp, "list.txt")
+            with open(listing, "w", encoding="utf-8") as fh:
+                fh.write(good + "\n" + bad + "\n")
+            real = au.audit_page
+
+            def flaky(src, **kw):
+                if src == bad:
+                    raise AttributeError("synthetic")
+                return real(src, **kw)
+
+            out_json = os.path.join(tmp, "r.json")
+            au.audit_page = flaky
+            try:
+                rc, out = run_cli(["--pages", listing, "--json", out_json, "--quiet"])
+            finally:
+                au.audit_page = real
+            self.assertEqual(rc, 0, out)
+            rep = _read_json(out_json)
+        self.assertEqual(len(rep["pages"]), 2)
+        failed = [p for p in rep["pages"] if p.get("code") == "internal_error"]
+        self.assertEqual(len(failed), 1)
+        self.assertIn("AttributeError", failed[0]["error"])
+
+    def test_registry_with_huge_integer_is_a_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            reg = os.path.join(tmp, "registry.json")
+            with open(reg, "w", encoding="utf-8") as fh:
+                fh.write('{"params": [{"id": "x", "n": ' + "9" * 4301 + "}]}")
+            loaded = au.load_registry(reg)
+        self.assertTrue(any("не разобрался" in w for w in loaded.get("warnings", [])), loaded.get("warnings"))
+
+
+class TestScriptLoweredSeverity(unittest.TestCase):
+    """0.2.3: серьёзность, которую скрипт снизил по контексту страницы (слайдер, один замер TTFB),
+    реестр больше не поднимает обратно — раньше «low» скрипта становилось high/medium очереди."""
+
+    def merged(self, item):
+        rows = au.imported_rows({"page": {"checks": [item]}})
+        out = au.merge_registry(rows, au.load_registry(), au.CHECKS)
+        return next(r for r in out if r["id"] == item["id"])
+
+    def test_context_lowered_severity_survives(self):
+        r = self.merged({"id": "speed.ttfb", "status": "warn", "severity": "low",
+                         "severity_by_context": True, "group": "speed", "title": "TTFB"})
+        self.assertEqual(r["severity"], "low")
+        self.assertEqual(r["registry_severity"], "medium")
+
+    def test_plain_row_takes_registry_severity(self):
+        r = self.merged({"id": "speed.ttfb", "status": "warn", "severity": "low",
+                         "group": "speed", "title": "TTFB"})
+        self.assertEqual(r["severity"], "medium")
+
+    def test_context_flag_cannot_raise_severity(self):
+        r = self.merged({"id": "speed.ttfb", "status": "warn", "severity": "critical",
+                         "severity_by_context": True, "group": "speed", "title": "TTFB"})
+        self.assertEqual(r["severity"], "medium")
+
+    def test_slider_microdata_stays_low_in_audit(self):
+        html = ('<html lang=ru><head><title>t</title></head><body><h1>x</h1>'
+                '<div class="t-slds__item" style="visibility:hidden"><div itemscope '
+                'itemtype="https://schema.org/ImageObject"><span itemprop="name">Слайд</span>'
+                '</div></div></body></html>')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+            page = audit_file(path)
+        merged = au.merge_registry(page["rows"], au.load_registry(), au.CHECKS)
+        row = next(r for r in merged if r["id"] == "markup.hidden_markup")
+        self.assertEqual((row["verdict"], row["severity"]), (au.WARN, "low"))
+
+
+class TestWorstEntityRowWins(unittest.TestCase):
+    """K-markup 16.11.2026 (Б1): schema_check пишет строку на сущность, сводка брала последнюю —
+    «нет location» у первого Event пропадало за «норма» второго."""
+
+    def test_two_events_first_incomplete(self):
+        ev_full = ('{"@type":"Event","name":"Вторая","startDate":"2026-12-02",'
+                   '"location":{"@type":"Place","name":"Зал","address":"Москва"}}')
+        html = ('<!doctype html><html lang="ru"><head><title>События</title>'
+                '<script type="application/ld+json">[{"@context":"https://schema.org",'
+                '"@type":"Event","name":"Первая","startDate":"2026-12-01"},' + ev_full +
+                ']</script></head><body><h1>Первая</h1><p>Вторая</p></body></html>')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "ev.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+            page = audit_file(path)
+        merged = au.merge_registry(page["rows"], au.load_registry(), au.CHECKS)
+        row = next(r for r in merged if r["id"] == "markup.req_event")
+        self.assertEqual(row["verdict"], au.BAD)
+        self.assertIn("location", row["observation"])
+        self.assertIn("1 из 2", row["observation"])
+
+    def test_own_check_still_overrides_script_row(self):
+        rows = [{"id": "x.y", "verdict": au.BAD, "severity": "high", "from_script": "schema_check"},
+                {"id": "x.y", "verdict": au.OK, "severity": "info"}]
+        self.assertEqual(au._rows_by_id(rows)["x.y"]["verdict"], au.OK)
+
+
+class TestMicrodataAndHeaderContacts(unittest.TestCase):
+    """K-markup 16.11.2026: Б6 — Organization в микроданных давал «разметки организации нет»,
+    поля микроданных молчали; телефон в <header> вне <article> давал «контактов нет»."""
+
+    HTML = ('<!doctype html><html lang="ru"><head><title>Книга</title></head><body>'
+            '<header><span class="phone">8 800 600-95-25</span></header>'
+            '<div itemscope itemtype="http://schema.org/Organization"><meta itemprop="name" '
+            'content="Магазин"></div><article itemscope itemtype="http://schema.org/Product">'
+            '<h1 itemprop="name">Книга про зрение</h1><div itemprop="offers" itemscope '
+            'itemtype="http://schema.org/Offer"><meta itemprop="price" content="68">'
+            '<meta itemprop="priceCurrency" content="RUB"></div><p>Купить книгу за 68 ₽.</p>'
+            '</article></body></html>')
+
+    def test_microdata_org_and_header_phone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "md.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(self.HTML)
+            page = audit_file(path)
+        merged = {r["id"]: r for r in au.merge_registry(page["rows"], au.load_registry(), au.CHECKS)}
+        self.assertEqual(merged["commerce.address_markup"]["verdict"], au.OK)
+        self.assertEqual(merged["commerce.contacts_visible"]["verdict"], au.OK)
+        self.assertEqual(merged["markup.req_product"]["verdict"], au.NODATA)
+        self.assertIn("microdata", merged["markup.req_product"]["observation"])
+
+
+class TestTextRowsWording(unittest.TestCase):
+    """C-content 16.11.2026: C11 — «например, H2 → H4» было зашито; C10 — пустое evidence
+    канцелярита и порог в штуках вместо плотности."""
+
+    def test_real_heading_jump(self):
+        hs = [{"level": 1, "text": "Статья"}, {"level": 2, "text": "Раздел"},
+              {"level": 5, "text": "Ответить?"}, {"level": 3, "text": "x"}]
+        self.assertTrue(au._heading_skip(hs).startswith("H2 → H5"))
+        self.assertIsNone(au._heading_skip([{"level": 1}, {"level": 2}, {"level": 3}, {"level": 2}]))
+
+    def test_officialese_evidence_and_density(self):
+        text = ("<html lang=ru><body><main><h1>Данный товар</h1><p>" +
+                "Данный товар является лучшим. В целях экономии производится доставка. " * 2 +
+                "</p></main></body></html>")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "c.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            page = audit_file(path)
+        row = rows_by_id(page)["content.officialese"]
+        self.assertTrue(row.get("evidence") and row["evidence"].strip("; "), row)
+
+
+class TestKeyMissingUsesZones(unittest.TestCase):
+    """C-content 16.11.2026 (C5): ключ только в title давал «не встречается нигде»."""
+
+    def test_key_in_title_only_is_not_missing(self):
+        html = ("<html lang=ru><head><title>Складской учёт онлайн</title></head><body><main>"
+                "<h1>Программа</h1><p>Текст про остатки и накладные без нужной фразы.</p>"
+                "</main></body></html>")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "k.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+            page = audit_file(path, keys=["складской учёт"])
+        self.assertEqual(rows_by_id(page)["content.key_missing"]["verdict"], au.OK)
+
+
+class TestNofollowBeyondLinkList(unittest.TestCase):
+    """M-sonnet 16.11.2026: nofollow на /nestatus в подвале не попадал в счёт — список ссылок
+    обрезается на 300, а проверка считала по нему."""
+
+    def test_footer_nofollow_counted(self):
+        body = "".join(f'<a href="/p{i}">Страница {i}</a>' for i in range(320))
+        html = (f'<html lang=ru><head><title>t</title></head><body><h1>x</h1>{body}'
+                '<footer><a href="/nestatus" rel="nofollow">Статус</a>'
+                '<a href="/go/1" rel="sponsored nofollow">Партнёр</a></footer></body></html>')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "n.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+            page = audit_file(path)
+        row = rows_by_id(page)["links.nofollow_internal"]
+        self.assertEqual(row["verdict"], au.WARN)
+        self.assertIn(": 1", row["observation"])
+        self.assertIn("nestatus", row["evidence"])
+
+
+class TestBriefNotCheckedExplained(unittest.TestCase):
+    """M-haiku 16.11.2026: «не проверено» в brief и в pages[].totals расходились без объяснения."""
+
+    def test_reasons_add_up(self):
+        rc, out = run_cli([BASIC, "--base-url", "https://example.com/", "--brief"])
+        brief = json.loads(out)
+        self.assertEqual(sum(brief["not_checked_reasons"].values()), brief["totals"][au.NOTCHECKED])
+        self.assertIn("нужен обход сайта", brief["not_checked_reasons"])
+
+
+class TestKeyZonePhraseVsWords(unittest.TestCase):
+    """C-content 16.11.2026 (C4): «есть» в зоне по словам ключа вразбивку — не вхождение фразы."""
+
+    def test_scattered_words_are_not_present(self):
+        html = ("<html lang=ru><head><title>Учёт товаров на складе</title></head><body><main>"
+                "<h1>Складской учёт</h1><p>Текст.</p></main></body></html>")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "z.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+            page = audit_file(path, keys=["учёт товаров", "учёт на складе"])
+            only_loose = audit_file(path, keys=["учёт на складе"])
+        title = rows_by_id(page)["content.key_in_title"]
+        self.assertEqual(title["verdict"], au.OK)
+        self.assertIn("есть: учёт товаров", title["observation"])
+        self.assertIn("вразбивку, не фразой: учёт на складе", title["observation"])
+        self.assertEqual(rows_by_id(only_loose)["content.key_in_title"]["verdict"], au.INFO)
+
+
+class TestNauseaOneNumberOneVerdict(unittest.TestCase):
+    """C-content 16.11.2026 (C9): классическая тошнота решалась по академической на пороге 6."""
+
+    def test_thresholds(self):
+        fn = au.c_nausea
+        class C:  # минимальный контекст: c_nausea читает только ctx.get("nausea")
+            def __init__(self, n):
+                self.n = n
+
+            def get(self, key, default=None):
+                return self.n if key == "nausea" else default
+        self.assertEqual(fn(C({"classic": 9.17, "academic_pct": 7.33, "top_stem": "x"}))["verdict"], au.WARN)
+        self.assertEqual(fn(C({"classic": 5.0, "academic_pct": 7.33, "top_stem": "x"}))["verdict"], au.OK)
+        aca = au.c_nausea_academic
+        self.assertEqual(aca(C({"academic_pct": 7.33, "top_stem": "x"}))["verdict"], au.OK)
+
+
+class TestOutOverwrite(unittest.TestCase):
+    """0.2.3: --out/--json не затирают чужой файл; свой прошлый отчёт — затирают."""
+
+    def test_rerun_overwrites_own_reports_and_refuses_foreign(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            html_out = os.path.join(tmp, "r.html")
+            json_out = os.path.join(tmp, "r.json")
+            argv = [BASIC, "--base-url", "https://example.com/", "--out", html_out,
+                    "--json", json_out, "--quiet"]
+            self.assertEqual(run_cli(argv)[0], 0)
+            self.assertIn('<meta name="generator" content="papa-seo', _read_text(html_out))
+            self.assertEqual(_read_json(json_out)["generator"], "papa-seo")
+            self.assertEqual(run_cli(argv)[0], 0, "повторный прогон в те же файлы")
+            site = os.path.join(tmp, "index.html")
+            with open(site, "w", encoding="utf-8") as fh:
+                fh.write("<!doctype html><h1>главная сайта</h1>")
+            rc, out = run_cli([BASIC, "--base-url", "https://example.com/", "--out", site, "--quiet"])
+            self.assertNotEqual(rc, 0)
+            self.assertEqual(json.loads(out)["code"], "out_exists")
+            self.assertIn("главная сайта", _read_text(site))
+            rc, _ = run_cli([BASIC, "--base-url", "https://example.com/", "--out", site,
+                             "--quiet", "--force"])
+            self.assertEqual(rc, 0)
+
+
 class TestNetwork(unittest.TestCase):
     """Сеть — только на локальном сервере, поднятом тестом, и только через http_safe."""
 
@@ -562,7 +851,7 @@ class TestSummary(unittest.TestCase):
         rep = au.build_report([page], registry=au.load_registry(), keys=[],
                               options={"delay": 2.0}, requests_made=0)
         blob = http_safe.dump_json(rep) + au.render_html(rep) + au.text_summary(rep)
-        self.assertFalse(re.search(r"[​-‏‪-‮⁠-⁤﻿]", blob))
+        self.assertFalse(re.search(r"[\u200b-\u200f\u202a-\u202e\u2060-⁤\ufeff]", blob))
 
 
 

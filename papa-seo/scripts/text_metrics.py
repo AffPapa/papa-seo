@@ -30,6 +30,7 @@ from functools import lru_cache
 from html.parser import HTMLParser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import http_safe  # noqa: E402
 import ru_text  # noqa: E402
 
 _plural = ru_text.plural
@@ -152,8 +153,13 @@ yours yourself yourselves really actually basically simply however therefore thu
 # ---------------------------------------------------------------- stemmers
 
 _RU_V = "аеиоуыэюя"
-_PERF_1 = ("вшись", "вши", "в")
-_PERF_2 = ("ывшись", "ившись", "ывши", "ивши", "ыв", "ив")
+# Голые «в», «ыв», «ив» (деепричастия «сделав», «купив») из Snowball убраны: в SEO-текстах
+# куда чаще существительные на -ыв/-ив/-ав, и правило рвало их основу — «отзыв» → «отз», но
+# «отзывы» → «отзыв», так что ключ «отзывы» не находил «отзыв» (C-content 16.11.2026, C1);
+# то же «архив», «мотив», «состав», а «объектив» сливался с «объект». Деепричастие без суффикса
+# -вши теперь остаётся несклеенным с глаголом — для ключей это дешевле.
+_PERF_1 = ("вшись", "вши")
+_PERF_2 = ("ывшись", "ившись", "ывши", "ивши")
 _REFL = ("ся", "сь")
 _ADJ = ("ими", "ыми", "его", "ого", "ему", "ому", "ее", "ие", "ые", "ое", "ей", "ий",
         "ый", "ой", "ем", "им", "ым", "ом", "их", "ых", "ую", "юю", "ая", "яя", "ою", "ею")
@@ -464,43 +470,254 @@ def readability(words: list[str], sentences: int, lang: str) -> dict:
 # ---------------------------------------------------------------- input / output
 
 
+# Шаблон страницы, а не её текст: меню, шапка, подвал, боковые колонки, формы, всплывашки и
+# скрытые узлы. C-content 16.11.2026 (C2): метрики считались по всей вёрстке — «абзацев» 980 при
+# 85 <p>, самоповтор cossa.ru 7,16 % вместо 2,26 % по самой статье. Шапку и подвал внутри
+# <main>/<article> не выбрасываем: там бывает заголовок и дата материала.
+_CHROME_TAGS = {"nav", "aside", "form", "dialog"}
+_CHROME_OUTER_TAGS = {"header", "footer"}
+_CHROME_ROLES = {"navigation", "banner", "contentinfo", "complementary", "dialog", "alertdialog",
+                 "alert", "status", "search", "menu", "menubar", "toolbar"}
+_CHROME_CLASS = re.compile(r"(?<![a-z0-9])(?:toast|modal|cookies?|popup|gdpr|consent|"
+                           r"offcanvas|drawer)(?![a-z0-9])", re.I)
+_HIDDEN_STYLE_RE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden")
+_VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+         "source", "track", "wbr"}
+# Граница тега там, где браузер склеивает слова только визуально: «Отзывы<span>208</span>»
+# видно как «Отзывы 208» (счётчик в бейдже), а текстом выходило «Отзывы208» (C6).
+# Знак-заглушка из области личного пользования; между буквой и цифрой он становится пробелом.
+_TAG_EDGE = "\ue000"
+_EDGE_SPLIT = re.compile(r"(?<=[^\W\d_])" + _TAG_EDGE + r"+(?=\d)|(?<=\d)" + _TAG_EDGE +
+                         r"+(?=[^\W\d_])")
+_UI_TAGS = {"button", "label", "option", "select", "summary"}
+
+
+def _resolve_edges(text: str) -> str:
+    return _EDGE_SPLIT.sub(" ", text).replace(_TAG_EDGE, "")
+
+
+def _is_chrome(tag: str, a: dict, in_main: bool) -> bool:
+    """Узел — служебная часть страницы или скрыт от читателя."""
+    if "hidden" in a or (a.get("aria-hidden") or "").strip().lower() == "true":
+        return True
+    if _HIDDEN_STYLE_RE.search((a.get("style") or "").lower()):
+        return True
+    if tag in _CHROME_TAGS or (tag in _CHROME_OUTER_TAGS and not in_main):
+        return True
+    if (a.get("role") or "").strip().lower() in _CHROME_ROLES:
+        return True
+    return bool(_CHROME_CLASS.search(" ".join((a.get("class") or "", a.get("id") or ""))))
+
+
+class _Scope:
+    """Вход и выход из одного поддерева по имени его тега (вложенные одноимённые считаются)."""
+
+    def __init__(self):
+        self.tag: str | None = None
+        self.depth = 0
+
+    @property
+    def active(self) -> bool:
+        return self.tag is not None
+
+    def enter(self, tag: str) -> None:
+        self.tag, self.depth = tag, 1
+
+    def start(self, tag: str) -> None:
+        if self.tag == tag:
+            self.depth += 1
+
+    def end(self, tag: str) -> None:
+        if self.tag == tag:
+            self.depth -= 1
+            if self.depth <= 0:
+                self.tag, self.depth = None, 0
+
+
 class _HTMLText(HTMLParser):
-    SKIP = {"script", "style", "noscript", "template", "svg", "head"}
+    """Текст для метрик: основной блок (<main>/<article>/role=main), а без него — тело страницы
+    без меню, шапки, подвала, форм, всплывашек и скрытых узлов. Заголовки, пункты списков и
+    ячейки помечаются как в markdown, чтобы не считаться абзацами и предложениями."""
+    SKIP = {"script", "style", "noscript", "template", "svg", "head", "iframe", "object"}
     BLOCK = {"p", "div", "section", "article", "li", "h1", "h2", "h3", "h4", "h5", "h6",
              "br", "tr", "td", "th", "blockquote", "header", "footer", "main", "ul", "ol",
-             "table", "nav", "aside", "figure", "figcaption", "dd", "dt"}
+             "table", "nav", "aside", "figure", "figcaption", "dd", "dt", "pre", "dl"}
+    MARK = {"h1": "# ", "h2": "## ", "h3": "### ", "h4": "#### ", "h5": "##### ", "h6": "###### ",
+            "li": "- ", "dt": "- ", "dd": "- ", "td": "| ", "th": "| "}
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
+        self.main_parts: list[str] = []
         self.depth = 0
         self.comments = 0
+        self.chrome = _Scope()
+        self.main = _Scope()
+        self.main_found = False
+        self.chrome_dropped = 0
+        # Без <main>: блок с основным текстом ищется по очкам абзацев, как в Readability —
+        # каждый абзац от 25 знаков отдаёт очки родителю и половину деду. [tag, start, score, direct]
+        self.stack: list[list] = []  # [tag, start, score, direct_chars, link_chars]
+        self.best: tuple[float, int, int] = (0.0, 0, 0)
+        self.in_link = 0
+
+    def _emit(self, piece: str) -> None:
+        if self.depth or self.chrome.active:
+            return
+        self.parts.append(piece)
+        if self.main.active:
+            self.main_parts.append(piece)
 
     def handle_starttag(self, tag, attrs):
         if tag in self.SKIP:
-            self.depth += 1
-        elif tag in self.BLOCK:
-            self.parts.append("\n\n")
+            if tag not in _VOID:
+                self.depth += 1
+            return
+        if tag in _VOID:
+            if tag == "br":
+                self._emit("\n\n")
+            return
+        if self.depth:
+            return
+        if self.chrome.active:
+            self.chrome.start(tag)
+            self.main.start(tag)
+            return
+        self.main.start(tag)
+        a = {k.lower(): (v or "") for k, v in attrs}
+        if _is_chrome(tag, a, self.main.active):
+            self.chrome.enter(tag)
+            self.chrome_dropped += 1
+            return
+        if not self.main.active and (tag in ("main", "article")
+                                     or (a.get("role") or "").strip().lower() == "main"):
+            self.main.enter(tag)
+            self.main_found = True
+        if tag == "a":
+            self.in_link += 1
+        if tag in self.BLOCK:
+            if tag in self.AUTO_CLOSE_BY_BLOCK or tag == "p":
+                while self.stack and self.stack[-1][0] == "p":
+                    self._close_frame()
+            self._emit("\n\n" + self.MARK.get(tag, ""))
+            self.stack.append([tag, len(self.parts), 0.0, 0, 0])
+        else:
+            self._emit(" " if tag in _UI_TAGS else _TAG_EDGE)
+
+    AUTO_CLOSE_BY_BLOCK = {"div", "section", "article", "ul", "ol", "table", "blockquote", "h1",
+                           "h2", "h3", "h4", "h5", "h6", "pre", "figure", "header", "footer",
+                           "main", "nav", "aside", "dl"}
+    PARA_TAGS = {"p", "pre", "blockquote", "td"}
+
+    def _close_frame(self) -> None:
+        tag, start, score, direct, link = self.stack.pop()
+        end = len(self.parts)
+        if self.stack:
+            self.stack[-1][4] += link
+        if tag in self.PARA_TAGS or (tag in ("div", "section", "article") and direct >= 25):
+            chunk = "".join(self.parts[start:end])
+            n = len(chunk.strip())
+            if n >= 25 and link < 0.5 * n:  # меню и списки ссылок абзацами не считаются
+                gain = 1 + chunk.count(",") + chunk.count("，") + min(n // 100, 3)
+                if self.stack:
+                    self.stack[-1][2] += gain
+                if len(self.stack) > 1:
+                    self.stack[-2][2] += gain / 2
+        if score > self.best[0]:
+            self.best = (score, start, end)
+
+    def handle_startendtag(self, tag, attrs):
+        if tag in _VOID or tag in self.SKIP:
+            self.handle_starttag(tag, attrs)
+            return
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
 
     def handle_endtag(self, tag):
-        if tag in self.SKIP and self.depth:
-            self.depth -= 1
-        elif tag in self.BLOCK:
-            self.parts.append("\n\n")
+        if tag in self.SKIP:
+            if tag not in _VOID and self.depth:
+                self.depth -= 1
+            return
+        if tag in _VOID or self.depth:
+            return
+        if self.chrome.active:
+            self.chrome.end(tag)
+            self.main.end(tag)
+            return
+        if tag == "a" and self.in_link:
+            self.in_link -= 1
+        if tag in self.BLOCK:
+            self._emit("\n\n")
+            if any(f[0] == tag for f in self.stack):
+                while self.stack:
+                    last = self.stack[-1][0]
+                    self._close_frame()
+                    if last == tag:
+                        break
+        else:
+            self._emit(" " if tag in _UI_TAGS else _TAG_EDGE)
+        self.main.end(tag)
 
     def handle_data(self, data):
-        if not self.depth:
-            self.parts.append(data)
+        if self.depth or self.chrome.active:
+            return
+        self._emit(data.replace("\n", " "))
+        if self.stack:
+            n = len(data.strip())
+            self.stack[-1][3] += n
+            if self.in_link:
+                self.stack[-1][4] += n
+
+    def close(self):
+        super().close()
+        while self.stack:
+            self._close_frame()
 
     def handle_comment(self, data):
         self.comments += 1
 
 
+CONTENT_BLOCK_MIN_SHARE = 0.25  # блок-кандидат должен нести хотя бы четверть текста страницы
+
+
+TEXT_SCOPE_RULE = ("Метрики текста (слова, предложения, абзацы, повторы, тошнота, вода, ритм) "
+                   "считаются по основному тексту: <main>/<article>/role=main; если такого нет "
+                   "или он обёртка на всю страницу — по блоку с наибольшей массой абзацев "
+                   "(эвристика, как в Readability); иначе по телу страницы. Меню, шапка, подвал, "
+                   "боковые колонки, формы, всплывашки и скрытые узлы не считаются. «Абзац» — "
+                   "блок сплошного текста в вёрстке, а не только <p>: это оценка, не факт")
+MAIN_WRAPPER_SHARE = 0.9        # <main> на всю страницу — обёртка, а не основной блок
+WRAPPED_BLOCK_MIN_SHARE = 0.15  # внутри такой обёртки кандидат может быть меньше
+
+
+def _pick_parts(p: "_HTMLText") -> tuple[list[str], str]:
+    """Откуда брать текст для метрик: main → блок с основным текстом → тело без шаблона."""
+    total = len("".join(p.parts).strip())
+    score, start, end = p.best
+    block = p.parts[start:end] if score >= 3 else []
+    block_len = len("".join(block).strip())
+    if p.main_found and re.search(r"[^\W\d_]", "".join(p.main_parts)):
+        main_len = len("".join(p.main_parts).strip())
+        if (main_len >= MAIN_WRAPPER_SHARE * total and block
+                and block_len >= WRAPPED_BLOCK_MIN_SHARE * total):
+            return block, "content_block_in_main"
+        return p.main_parts, "main"
+    if block and block_len >= CONTENT_BLOCK_MIN_SHARE * total:
+        return block, "content_block"
+    return p.parts, "body_without_chrome"
+
+
 def _text_of(p: "_HTMLText") -> tuple[str, int]:
-    text = "".join(p.parts)
+    parts, _ = _pick_parts(p)
+    text = _resolve_edges("".join(parts))
     text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    text = re.sub(r"\n[ \t]+", "\n", text)
     text = re.sub(r"\n\s*\n+", "\n\n", text)
     return text.strip(), p.comments
+
+
+def _text_scope(p: "_HTMLText") -> str:
+    return _pick_parts(p)[1]
 
 
 # ---------------------------------------------------------------- зоны страницы
@@ -591,12 +808,28 @@ class _HTMLZones(HTMLParser):
         self.alts: list[str] = []
         self.anchors: list[str] = []
         self.html_lang: str | None = None
+        # Тост, модалка, меню, подвал: их <p> не может быть «первым абзацем» (C7).
+        self.chrome = _Scope()
+
+    def _edge(self, tag: str) -> None:
+        if tag not in self.CAPTURE and tag not in self.BLOCKY and tag not in _VOID:
+            piece = " " if tag in _UI_TAGS else _TAG_EDGE
+            for frame in self.frames:
+                frame[1].append(piece)
 
     def handle_starttag(self, tag, attrs):
         a = {k.lower(): (v or "") for k, v in attrs}
         if tag in self.SKIP:
             self.skip_depth += 1
             return
+        if self.skip_depth:
+            return  # <img alt> из <noscript> — пиксель счётчика, не картинка страницы (C12)
+        if tag not in _VOID:
+            if self.chrome.active:
+                self.chrome.start(tag)
+            elif tag not in ("html", "body", "main", "article") and _is_chrome(tag, a, self.main_depth > 0):
+                self.chrome.enter(tag)
+        self._edge(tag)
         if tag == "html" and self.html_lang is None:
             self.html_lang = a.get("lang", "").strip() or None
         if tag in self.BLOCKY:
@@ -624,7 +857,7 @@ class _HTMLZones(HTMLParser):
             self.main_depth += 1
             return
         if tag in self.CAPTURE:
-            self.frames.append([tag, [], self.main_depth > 0])
+            self.frames.append([tag, [], self.main_depth > 0, self.chrome.active])
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
@@ -635,6 +868,10 @@ class _HTMLZones(HTMLParser):
         if tag in self.SKIP:
             self.skip_depth = max(0, self.skip_depth - 1)
             return
+        if self.skip_depth:
+            return
+        self.chrome.end(tag)
+        self._edge(tag)
         if tag in ("main", "article"):
             self.main_depth = max(0, self.main_depth - 1)
             return
@@ -646,15 +883,16 @@ class _HTMLZones(HTMLParser):
                 return
 
     def _store(self, frame) -> None:
-        tag, chars, in_main = frame
-        text = re.sub(r"\s+", " ", "".join(chars)).strip()
+        tag, chars, in_main, in_chrome = frame
+        text = re.sub(r"\s+", " ", _resolve_edges("".join(chars))).strip()
         if not text:
             return
         if tag == "title":
             if self.title is None:
                 self.title = text
         elif tag == "p":
-            self.paragraphs.append((in_main, text))
+            if not in_chrome:
+                self.paragraphs.append((in_main, text))
         elif tag == "a":
             self.anchors.append(text)
         else:
@@ -750,7 +988,8 @@ def _zones_of(p: "_HTMLZones", url: str | None = None) -> dict:
         "source": "live_html",
         "html_lang": p.html_lang,
         "first_paragraph_rule": "первый <p> от 3 слов, сначала внутри <main>/<article>, "
-                                "иначе первый в документе",
+                                "иначе первый в документе; <p> из меню, шапки, подвала, форм, "
+                                "всплывашек (toast/modal/cookie) и скрытых узлов не берутся",
         "first_paragraph_source": source,
         "url_source": "аргумент --url" if url else (
             "link rel=canonical" if p.canonical else (
@@ -817,22 +1056,28 @@ def read_input(path: str) -> str:
     return data.decode("utf-8-sig", errors="replace")
 
 
-def check_out_path(path: str) -> str:
-    """--out пишет ровно в переданный путь .json: не каталог, не симлинк, каталог существует."""
+def check_out_path(path: str, force: bool = False) -> str:
+    """--out пишет ровно в переданный путь .json; правила пути — общие (http_safe.safe_out_path):
+    без «..», не каталог, не симлинк, каталог существует, чужой существующий файл — только с --force."""
     if "\x00" in path or not path.lower().endswith(".json"):
         raise ValueError("--out: нужен путь к файлу .json")
-    ap = os.path.abspath(path)
-    if os.path.islink(ap) or os.path.isdir(ap):
-        raise ValueError("--out: путь — каталог или символическая ссылка")
-    if not os.path.isdir(os.path.dirname(ap)):
-        raise ValueError("--out: каталог для файла не существует")
-    return ap
+    try:
+        return http_safe.safe_out_path(path, force=force)
+    except http_safe.CliError as exc:
+        err = ValueError(f"--out: {exc.message}")
+        err.code = exc.code
+        raise err from None
 
 
-def emit(report: dict, short: dict, out: str | None) -> None:
+def write_report(out: str, report: dict, force: bool = False) -> None:
+    """Атомарно (временный файл + rename), с меткой papa-seo первой строкой JSON."""
+    http_safe.write_atomic(out, json.dumps(http_safe.stamp(report), ensure_ascii=False, indent=2),
+                           force=force)
+
+
+def emit(report: dict, short: dict, out: str | None, force: bool = False) -> None:
     if out:
-        with open(out, "w", encoding="utf-8") as fh:
-            json.dump(report, fh, ensure_ascii=False, indent=2)
+        write_report(out, report, force)
         short = dict(short, out=out)
         print(json.dumps(short, ensure_ascii=False))
     else:
@@ -1103,9 +1348,16 @@ def key_in_zone(zone: dict, kw_lc: list[str], kstems: list[str],
     exact = morph = window = 0
     translit_found: list[str] = []
     items: list[dict] = []
+    if is_url:
+        # В URL дефис — разделитель слов, а в ключе «papa-seo» — часть слова: делим ключ так же,
+        # как адрес (M-haiku 16.11.2026: «/papa-seo» против ключа «papa-seo» — «ни одной фразы»).
+        kw_lc = [p for w in kw_lc for p in re.split(r"[\W_]+", w) if p]
+        kstems = [stem(w) for w in kw_lc if not is_stop(w)] or [stem(w) for w in kw_lc] or kstems
     for n, item in enumerate(zone["items"], 1):
         toks = url_tokens(item) if is_url else [_lc(w) for w in letter_words(item)]
-        stems = [stem(w) for w in toks]
+        # Служебные слова отбрасываются и в зоне, как в ключе и в тексте: иначе «Программа для
+        # склада» давала exact 1 и morphological 0 (C-content 16.11.2026, C3).
+        stems = [stem(w) for w in toks if not is_stop(w)]
         e, m, wd = find_seq(toks, kw_lc), find_seq(stems, kstems), find_window(stems, kstems)
         exact += e
         morph += m
@@ -1298,6 +1550,9 @@ def analyze(text: str, keys: list[str] | None = None, lang: str = "auto",
         tee.feed(raw)
         tee.close()
         text, html_comments = _text_of(text_parser)
+        text_scope = _text_scope(text_parser)
+    else:
+        text_scope = "file"
     plain, masked = clean_markdown(text)
     masked["html_comments"] += html_comments
     blocks = split_blocks(plain)
@@ -1463,6 +1718,8 @@ def analyze(text: str, keys: list[str] | None = None, lang: str = "auto",
             for name in ZONE_ORDER if name in zones
         },
         "zones_meta": zones["_meta"],
+        "text_scope": text_scope,
+        "text_scope_rule": TEXT_SCOPE_RULE,
         "page_text": page_text_checks(zones, lang, prose_sentences),
         "masked": masked,
     }
@@ -1694,24 +1951,27 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--compare", nargs=2, metavar=("ДО", "ПОСЛЕ"),
                     help="сравнить две версии одного текста")
     ap.add_argument("--out", help="записать полный отчёт в этот файл .json")
+    ap.add_argument("--force", action="store_true",
+                    help="перезаписать существующий файл, даже если его писал не papa-seo")
     args = ap.parse_args(argv)
     try:
         if not args.path and not args.compare:
             raise ValueError("нужен путь к файлу или --compare ДО ПОСЛЕ")
-        out = check_out_path(args.out) if args.out else None
+        out = check_out_path(args.out, args.force) if args.out else None
         keys = parse_keys(args.keys)
         if args.compare:
             a = _one(args.compare[0], keys, args.lang, args.html, args.url)
             b = _one(args.compare[1], keys, args.lang, args.html, args.url)
             rep = compare(a, b)
-            emit(rep, compare_short(rep), out)
+            emit(rep, compare_short(rep), out, args.force)
             return 0
         rep = _one(args.path, keys, args.lang, args.html, args.url)
     except (ValueError, OSError) as exc:
-        print(json.dumps({"tool": "text_metrics", "ok": False, "error": str(exc)},
+        print(json.dumps({"tool": "text_metrics", "ok": False, "error": str(exc),
+                          **({"code": exc.code} if getattr(exc, "code", None) else {})},
                          ensure_ascii=False))
         return 2
-    emit(rep, short_summary(rep), out)
+    emit(rep, short_summary(rep), out, args.force)
     return 0
 
 

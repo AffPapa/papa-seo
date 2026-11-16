@@ -82,6 +82,70 @@ class TestCounts(unittest.TestCase):
         self.assertEqual(r["counts"]["sentences_prose"], 1)
 
 
+class TestHtmlTextScope(unittest.TestCase):
+    """C-content 16.11.2026 (C2, C6, C7, C12) и M-sonnet п.2: метрики текста считались по всей
+    вёрстке (меню, подвал, тосты), подписи кнопок склеивались, бейдж-счётчик прилипал к слову."""
+
+    def an(self, html, **kw):
+        return tm.analyze(html, is_html=True, lang="ru", **kw)
+
+    def test_nav_footer_and_one_paragraph(self):
+        html = ("<html><body><nav><a href=/1>Главная</a><a href=/2>Каталог</a><a href=/3>Цены</a>"
+                "<a href=/4>Блог</a><a href=/5>Контакты</a></nav>"
+                "<p>Единственный абзац настоящего текста страницы про складской учёт.</p>"
+                "<footer><p>© Компания, все права защищены, политика конфиденциальности.</p>"
+                "</footer></body></html>")
+        r = self.an(html)
+        self.assertEqual(r["counts"]["paragraphs_prose"], 1)
+        self.assertEqual(r["counts"]["words"], 8)
+        self.assertEqual(r["text_scope"], "body_without_chrome")
+
+    def test_hidden_copy_button_is_not_text(self):
+        html = ('<main><p>Текст абзаца про скилы и установку.</p>'
+                '<button type="button" class="ps-copy" hidden><span>Скопировать</span>'
+                '<span aria-hidden="true"><svg viewBox="0 0 1 1"><path d="M0"/></svg>Скопировано'
+                '</span></button><button>Купить</button><button>сейчас</button></main>')
+        p = tm._HTMLText()
+        p.feed(html)
+        p.close()
+        t, _ = tm._text_of(p)
+        self.assertNotIn("скопировано", t.lower())
+        self.assertNotIn("скопировать", t.lower())
+        self.assertIn("Купить сейчас", re.sub(r"\s+", " ", t))
+
+    def test_badge_counter_does_not_glue_to_word(self):
+        html = "<h2>Отзывы<span>208</span></h2><p>Читайте отзывы, их много на этой странице.</p>"
+        r = self.an(html, keys=["отзывы"])
+        self.assertEqual(r["zones"]["h2_h6"]["text"], "Отзывы 208")
+        p = tm._HTMLText()
+        p.feed("<p>При<b>вет</b> и <i>слово</i>2026</p>")
+        p.close()
+        self.assertIn("Привет", tm._text_of(p)[0], "буквы через тег не разрываются")
+
+    def test_noscript_alt_and_toast_paragraph(self):
+        html = ("<html><body><h1>Лечение зубов</h1><div>Текст в div без абзацев страницы.</div>"
+                "<noscript><img src=x.gif alt=pixel></noscript>"
+                '<div class="toast"><p>Дорогие пациенты, мы не передаём ваши номера.</p></div>'
+                "</body></html>")
+        z = self.an(html)["zones"]
+        self.assertEqual(z["alt"]["count"], 0)
+        self.assertEqual(z["first_paragraph"]["count"], 0)
+
+    def test_content_block_without_main(self):
+        menu = "".join(f'<li><a href="/{i}">Пункт меню номер {i} с длинным названием</a></li>'
+                       for i in range(40))
+        article = "".join(f"<p>Абзац статьи номер {i}, в нём есть запятые, слова и смысл, "
+                          f"который читатель ищет.</p>" for i in range(12))
+        html = (f'<html><body><div class="top"><ul>{menu}</ul></div>'
+                f'<div class="content">{article}</div>'
+                '<div class="side"><p>Подпишитесь на рассылку.</p></div></body></html>')
+        r = self.an(html)
+        self.assertEqual(r["text_scope"], "content_block")
+        self.assertEqual(r["counts"]["paragraphs_prose"], 12)
+        self.assertNotIn("меню", " ".join(s["stem"] for s in r["stems_top"]))
+        self.assertEqual(r["counts"]["words"], 12 * 13, "только статья, без меню и подписки")
+
+
 class TestStemsAndKeys(unittest.TestCase):
     def test_ru_stemmer_merges_forms(self):
         self.assertEqual(tm.stem("кошка"), tm.stem("кошкой"))
@@ -89,6 +153,36 @@ class TestStemsAndKeys(unittest.TestCase):
         self.assertEqual(tm.stem("диван"), tm.stem("диванами"))
         self.assertEqual(tm.stem("купить"), tm.stem("купили"))
         self.assertEqual(tm.stem("ёлка"), tm.stem("елки"))
+
+    def test_ru_stemmer_keeps_nouns_on_yv_iv(self):
+        """C-content 16.11.2026 (C1): «отзыв» → «отз», «отзывы» → «отзыв» — ключ «отзывы»
+        терял единственное число (на bookmaker-ratings 8 вхождений вместо 16)."""
+        for a, b in (("отзыв", "отзывы"), ("отзыв", "отзывов"), ("архив", "архивами"),
+                     ("мотив", "мотивы"), ("призыв", "призывов"), ("состав", "составы")):
+            with self.subTest(a=a, b=b):
+                self.assertEqual(tm.stem_ru(a), tm.stem_ru(b))
+        self.assertNotEqual(tm.stem_ru("объектив"), tm.stem_ru("объект"))
+        self.assertNotEqual(tm.stem_ru("курсив"), tm.stem_ru("курс"))
+        text = "Оставьте отзыв о магазине.\n\nЧитайте отзывы покупателей, каждый отзыв проверен."
+        rep = tm.analyze(text, keys=["отзывы"], lang="ru")
+        self.assertEqual(rep["keys"][0]["exact_by_stems"], 3)
+
+    def test_hyphenated_key_in_url(self):
+        """M-haiku 16.11.2026: ключ «papa-seo» в URL /papa-seo — «ни одной фразы»."""
+        zone = tm._zone(["https://example.com/papa-seo"])
+        kw = tm.letter_words("papa-seo")
+        hit = tm.key_in_zone(zone, [w.lower() for w in kw], [tm.stem(w) for w in kw], is_url=True)
+        self.assertTrue(hit["present"])
+        miss = tm.key_in_zone(tm._zone(["https://example.com/papa"]), ["papa-seo"],
+                              [tm.stem("papa-seo")], is_url=True)
+        self.assertFalse(miss["present"])
+
+    def test_zone_drops_stopwords_like_key(self):
+        """C-content 16.11.2026 (C3): «Программа для склада» в H1 — exact 1, morphological 0."""
+        r = tm.analyze("<html><body><h1>Программа для склада</h1><p>Текст.</p></body></html>",
+                       keys=["программа для склада"], is_html=True, lang="ru")
+        h1 = r["keys"][0]["zones"]["h1"]
+        self.assertEqual((h1["exact_forms"], h1["morphological"]), (1, 1))
 
     def test_en_stemmer(self):
         self.assertEqual(tm.stem("studies"), tm.stem("study"))
@@ -211,6 +305,21 @@ class TestCli(unittest.TestCase):
         rc, data = run_cli([self.src, "--out", "../../x"])
         self.assertEqual(rc, 2)
         self.assertFalse(data["ok"])
+
+    def test_out_dotdot_and_foreign_file(self):
+        """0.2.3 (S-security №7): общая безопасная запись — «..» запрещён, чужой файл не затирается,
+        свой отчёт перезаписывается на повторе."""
+        os.makedirs(os.path.join(self.tmp.name, "sub"))
+        self.assertEqual(run_cli([self.src, "--out",
+                                  os.path.join(self.tmp.name, "sub", "..", "x.json")])[0], 2)
+        foreign = os.path.join(self.tmp.name, "f.json")
+        with open(foreign, "w", encoding="utf-8") as fh:
+            fh.write('{"budget": 1}')
+        rc, data = run_cli([self.src, "--out", foreign])
+        self.assertEqual((rc, data.get("code")), (2, "out_exists"))
+        own = os.path.join(self.tmp.name, "own.json")
+        self.assertEqual(run_cli([self.src, "--out", own])[0], 0)
+        self.assertEqual(run_cli([self.src, "--out", own])[0], 0)
 
     def test_out_symlink_refused(self):
         target = os.path.join(self.tmp.name, "target.json")

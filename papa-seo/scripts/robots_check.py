@@ -754,9 +754,10 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--param-hints", help="query params seen in links: comma list or a file")
         http_safe.add_pace_args(p, delay=False)
         p.add_argument("--out")
+        p.add_argument("--force", action="store_true", help="перезаписать существующий файл, даже если его писал не papa-seo")
         args = p.parse_args(argv)
         if args.out:
-            http_safe.safe_out_path(args.out)
+            http_safe.safe_out_path(args.out, force=args.force)
         urls = list(args.url)
         if args.urls_file:
             data, _ = http_safe.read_input_file(args.urls_file, 2 * 1024 * 1024)
@@ -795,7 +796,7 @@ def main(argv: list[str] | None = None) -> int:
                               known_names=known_names)
         summary = {"state": report["state"], "blocked_at_root": report["blocked_at_root"],
                    "urls": len(report["matrix"])}
-        return http_safe.emit(report, args.out, summary)
+        return http_safe.emit(report, args.out, summary, force=args.force)
 
     return http_safe.run_cli(body)
 

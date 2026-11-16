@@ -357,6 +357,105 @@ class TypeRuleTest(unittest.TestCase):
         self.assertIn("answerCount", row["observation"])
 
 
+class HonestNoDataTest(unittest.TestCase):
+    """K-markup 16.11.2026: Б8 — при неразобранном блоке писали «JSON-LD нет»; Б5 — «норма»
+    при нуле сверенных значений; Б7 — headline с хвостом « - Сайт» считался невидимым."""
+
+    def test_broken_block_is_not_absent(self):
+        block = {"line": 1, "parse_ok": False, "error": "invalid JSON", "types": [], "bytes": 9}
+        r = sc.check_structured_data(jsonld_blocks=[block], visible_text="x")
+        self.assertIn("не разбирается", rows_for(r, "markup.jsonld_context")[0]["observation"])
+        vv = rows_for(r, "markup.visible_values")[0]
+        self.assertEqual(vv["status"], "skip")
+        self.assertIn("не разбирается", vv["observation"])
+
+    def test_nothing_to_compare_is_skip_not_pass(self):
+        r = check_jsonld({"@context": "https://schema.org", "@type": "Organization",
+                          "name": "Совсем другая компания", "url": "https://x.test/"},
+                         visible="Страница Текст страницы без названия компании.")
+        self.assertEqual(status_of(r, "markup.visible_values"), "skip")
+
+    def test_headline_with_site_tail_is_visible(self):
+        r = check_jsonld({"@context": "https://schema.org", "@type": "Article",
+                          "headline": "Фрибет 30 BYN от Овечкина и БК Fonbet.by - Рейтинг Букмекеров"},
+                         visible="Фрибет 30 BYN от Овечкина и БК Fonbet.by Текст статьи")
+        self.assertEqual(status_of(r, "markup.visible_values"), "pass")
+        r = check_jsonld({"@context": "https://schema.org", "@type": "Article",
+                          "headline": "Совсем другой заголовок статьи - Рейтинг"},
+                         visible="Фрибет 30 BYN от Овечкина")
+        self.assertEqual(status_of(r, "markup.visible_values"), "fail")
+
+
+class FreeSoftwareAppTest(unittest.TestCase):
+    """vs16-E 16.11.2026: на карточках бесплатного ПО «price 0» считался ошибкой (Google сам
+    велит 0), а отсутствие рейтинга подавалось как дефект, хотя оценки выдумывать нельзя."""
+
+    APP = {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "MCP-сервер",
+           "applicationCategory": "DeveloperApplication", "operatingSystem": "any",
+           "offers": {"@type": "Offer", "price": 0, "priceCurrency": "USD"}}
+
+    def test_price_zero_is_fine_for_software(self):
+        r = check_jsonld(self.APP, visible="MCP-сервер")
+        self.assertNotIn("fail", [x["status"] for x in rows_for(r, "markup.price_format")])
+
+    def test_price_zero_still_flagged_for_product(self):
+        r = check_jsonld({"@context": "https://schema.org", "@type": "Product", "name": "Товар",
+                          "offers": {"@type": "Offer", "price": 0, "priceCurrency": "RUB"}})
+        self.assertIn("fail", [x["status"] for x in rows_for(r, "markup.price_format")])
+
+    def test_missing_rating_is_a_low_condition_not_a_defect(self):
+        row = rows_for(check_jsonld(self.APP, visible="MCP-сервер"), "markup.req_softwareapp")[0]
+        self.assertEqual((row["status"], row["severity"]), ("warn", "low"))
+        self.assertTrue(row["severity_by_context"])
+        self.assertIn("настоящие оценки", row["observation"])
+
+
+class RefsAndVideoAuthorTest(unittest.TestCase):
+    """K-markup 16.11.2026: Б11 — ссылки {"@id"} считались сущностями; Б10 — у VideoObject
+    автор через author не засчитывался вместо creator."""
+
+    def test_refs_are_not_entities(self):
+        r = check_jsonld({"@context": "https://schema.org", "@graph": [
+            {"@type": "WebSite", "@id": "https://x.ru/#site", "publisher": {"@id": "https://x.ru/#org"}},
+            {"@type": "Organization", "@id": "https://x.ru/#org", "name": "X"},
+            {"@type": "WebPage", "@id": "https://x.ru/#page", "isPartOf": {"@id": "https://x.ru/#site"},
+             "about": {"@id": "https://x.ru/#org"}}]})
+        self.assertEqual((r["entity_count"], r["id_refs"]), (3, 3))
+
+    def test_video_author_counts_as_creator(self):
+        r = check_jsonld({"@context": "https://schema.org", "@type": "VideoObject", "name": "Видео",
+                          "thumbnailUrl": "https://x.ru/t.jpg", "uploadDate": "2026-01-01",
+                          "author": {"@type": "Person", "name": "Автор"}})
+        row = rows_for(r, "markup.req_videoobject")[0]
+        self.assertNotIn("creator", row["observation"])
+
+
+class BreadcrumbItemRefTest(unittest.TestCase):
+    """QA 16.11.2026 (bookmaker-ratings.ru): ListItem.item = {"@id", "name"} без @type — форма из
+    документации Google по хлебным крошкам. Было high «У сущности нет @type»."""
+
+    def crumbs(self, item):
+        return {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
+            {"@type": "ListItem", "position": 1, "item": item},
+            {"@type": "ListItem", "position": 2, "item": dict(item, **{"@id": "https://x.ru/a/"})}]}
+
+    def test_item_ref_is_info_once(self):
+        r = check_jsonld(self.crumbs({"@id": "https://x.ru/", "name": "X"}))
+        rows = rows_for(r, "markup.jsonld_type")
+        self.assertEqual([x["status"] for x in rows], ["info"])
+        self.assertNotIn("markup.jsonld_type", r["checks_summary"]["first_to_fix"])
+
+    def test_untyped_item_with_content_is_still_fail(self):
+        r = check_jsonld(self.crumbs({"@id": "https://x.ru/", "name": "X",
+                                      "description": "целая сущность без типа"}))
+        self.assertIn("fail", [x["status"] for x in rows_for(r, "markup.jsonld_type")])
+
+    def test_untyped_node_elsewhere_is_still_fail(self):
+        r = check_jsonld({"@context": "https://schema.org", "@type": "Article", "headline": "h",
+                          "author": {"@id": "https://x.ru/#me", "name": "Автор"}})
+        self.assertIn("fail", [x["status"] for x in rows_for(r, "markup.jsonld_type")])
+
+
 class YandexTest(unittest.TestCase):
     """references/yandex.md §4: список поддерживаемых схем; FAQPage в нём нет."""
 
@@ -579,7 +678,7 @@ class ValueFormatTest(unittest.TestCase):
 
     def test_visible_values_ignores_soft_hyphen_and_quotes(self):
         node = self.ctx({"@type": "Product", "name": "Кофемолка «Барратца» Б3"})
-        r = check_jsonld(node, visible="Ко­фемолка “Барратца” Б3 в наличии")
+        r = check_jsonld(node, visible="Ко\u00adфемолка “Барратца” Б3 в наличии")
         self.assertEqual(status_of(r, "markup.visible_values"), "pass")
 
     def test_visible_values_matches_price_with_thousands_separator(self):
@@ -732,9 +831,9 @@ class SecurityTest(unittest.TestCase):
 
     def test_values_are_escaped_in_evidence(self):
         r = check_jsonld({"@context": "https://schema.org", "@type": "Organization",
-                          "name": "a​b", "url": "/x"})
+                          "name": "a\u200bb", "url": "/x"})
         row = rows_for(r, "markup.relative_urls")[0]
-        self.assertNotIn("​", json.dumps(row, ensure_ascii=False))
+        self.assertNotIn("\u200b", json.dumps(row, ensure_ascii=False))
 
 
 if __name__ == "__main__":

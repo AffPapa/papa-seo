@@ -312,7 +312,7 @@ def build_report(graph: Graph, metrics: dict, *, pages_given: bool) -> dict:
     }
 
 
-def write_nodes_csv(path: str, graph: Graph, metrics: dict):
+def write_nodes_csv(path: str, graph: Graph, metrics: dict, *, force: bool = False):
     buf = io.StringIO()
     w = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
     w.writerow(["url", "inlinks", "contextual_inlinks", "outlinks", "depth", "pagerank", "top_anchor"])
@@ -322,7 +322,7 @@ def write_nodes_csv(path: str, graph: Graph, metrics: dict):
         d = metrics["depth"][i]
         w.writerow([http_safe.csv_safe(url), metrics["indeg"][i], metrics["ctx_in"][i], metrics["outdeg"][i],
                     d if d >= 0 else "", f"{metrics['pr'][i]:.8f}", http_safe.csv_safe(top)])
-    http_safe.write_atomic(path, buf.getvalue())
+    http_safe.write_atomic(path, buf.getvalue(), force=force)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -337,10 +337,11 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--max-files", type=int, default=MAX_FILES_DEFAULT)
         p.add_argument("--csv-out", help="write node table as CSV (formula-escaped)")
         p.add_argument("--out")
+        p.add_argument("--force", action="store_true", help="перезаписать существующий файл, даже если его писал не papa-seo")
         args = p.parse_args(argv)
         for path in (args.out, args.csv_out):
             if path:
-                http_safe.safe_out_path(path)
+                http_safe.safe_out_path(path, force=args.force)
         if bool(args.edges) == bool(args.html_dir):
             raise http_safe.CliError("give either an edges CSV or --html-dir", "bad_arguments")
         graph = Graph(args.base_url)
@@ -361,10 +362,10 @@ def main(argv: list[str] | None = None) -> int:
         metrics = graph.compute(args.start)
         report = build_report(graph, metrics, pages_given=pages_given)
         if args.csv_out:
-            write_nodes_csv(args.csv_out, graph, metrics)
+            write_nodes_csv(args.csv_out, graph, metrics, force=args.force)
             report["csv_out"] = os.path.abspath(args.csv_out)
         summary = {"nodes": report["nodes"], "edges": report["edges"], "orphans": report["orphans"]["count"]}
-        return http_safe.emit(report, args.out, summary)
+        return http_safe.emit(report, args.out, summary, force=args.force)
 
     return http_safe.run_cli(body)
 

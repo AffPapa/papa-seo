@@ -201,7 +201,9 @@ REQ_RULES: list[dict] = [
      "source": _gsd("Recipe", "recipe")},
     {"id": "markup.req_videoobject", "title": "VideoObject", "types": {"VideoObject"},
      "doc_required": True, "required": ["name", "thumbnailUrl", "uploadDate"],
-     "recommended": ["description", "duration", "contentUrl", "embedUrl", "creator", "expires",
+     # Google принимает автора видео и как creator, и как author (K-markup 16.11.2026, Б10)
+     "recommended": ["description", "duration", "contentUrl", "embedUrl",
+                     ("any", ["creator", "author"]), "expires",
                      "interactionStatistic", "regionsAllowed"],
      "source": _gsd("Video", "video")},
     {"id": "markup.req_website", "title": "WebSite + SearchAction (функция выведена)",
@@ -393,6 +395,8 @@ class Rows:
             row["value"] = value
         if note:
             row["note"] = note
+        if severity and status in ("warn", "fail") and severity != sev:
+            row["severity_by_context"] = True  # audit.py не поднимает её обратно по реестру
         self.rows.append(row)
         return row
 
@@ -416,31 +420,33 @@ def _types_of(node: dict) -> list[str]:
 
 
 def _walk(node, path: str, out: list, depth: int = 0, max_depth: list | None = None,
-          via: str | None = None):
+          via: str | None = None, parent: tuple = ()):
     """Every dict that looks like a schema.org node, with its path and `via` — the property through
     which it was reached. `via` отличает самостоятельную сущность от значения роли (`publisher`
-    внутри Article). Depth is recorded, not followed past MAX_DEPTH."""
+    внутри Article); `parent` — типы узла, через который пришли (Offer внутри SoftwareApplication).
+    Depth is recorded, not followed past MAX_DEPTH."""
     if max_depth is not None:
         max_depth[0] = max(max_depth[0], depth)
     if depth > MAX_DEPTH or len(out) >= MAX_ENTITIES:
         return
     if isinstance(node, dict):
         if node.get("@graph") is not None and not _types_of(node):
-            _walk(node["@graph"], path + "/@graph", out, depth + 1, max_depth, via)
+            _walk(node["@graph"], path + "/@graph", out, depth + 1, max_depth, via, parent)
             for k, v in node.items():
                 if k != "@graph" and isinstance(v, (dict, list)):
-                    _walk(v, f"{path}/{k}", out, depth + 1, max_depth, k)
+                    _walk(v, f"{path}/{k}", out, depth + 1, max_depth, k, parent)
             return
-        out.append({"path": path, "node": node, "types": _types_of(node), "depth": depth,
-                    "via": via})
+        here = tuple(_types_of(node))
+        out.append({"path": path, "node": node, "types": list(here), "depth": depth,
+                    "via": via, "parent_types": list(parent)})
         for k, v in node.items():
             if isinstance(v, (dict, list)) and not k.startswith("@"):
-                _walk(v, f"{path}/{k}", out, depth + 1, max_depth, k)
+                _walk(v, f"{path}/{k}", out, depth + 1, max_depth, k, here or parent)
             elif k == "@graph" and isinstance(v, (dict, list)):
-                _walk(v, f"{path}/@graph", out, depth + 1, max_depth, via)
+                _walk(v, f"{path}/@graph", out, depth + 1, max_depth, via, parent)
     elif isinstance(node, list):
         for i, v in enumerate(node):
-            _walk(v, f"{path}[{i}]", out, depth + 1, max_depth, via)
+            _walk(v, f"{path}[{i}]", out, depth + 1, max_depth, via, parent)
 
 
 def _as_list(value):
@@ -771,7 +777,18 @@ def _required_checks(rows: Rows, node: dict, types: list, label: str, via: str |
             rows.add(rule["id"], "info", f"{rule['title']}: разметка есть, требований к ней у Google "
                                          f"нет", entity=label, note=note)
             continue
-        if missing:
+        rating_only = [m for m in missing if "aggregateRating" in m and "review" in m]
+        if rating_only and len(rating_only) == len(missing):
+            # Оценки нельзя выдумать: без настоящих отзывов это не дефект разметки, а условие
+            # расширенного сниппета (vs16-E 16.11.2026, карточки бесплатных MCP-серверов).
+            rows.add(rule["id"], "warn",
+                     f"{rule['title']}: без aggregateRating или review расширенного сниппета не "
+                     "будет. Это условие показа, а не ошибка: добавлять только настоящие оценки",
+                     entity=label, severity="low", value={"missing_required": missing,
+                                                          "missing_recommended": soft},
+                     note=(note + ". " if note else "") + "Выдуманный рейтинг нарушает правила "
+                          "Google о структурированных данных")
+        elif missing:
             rows.add(rule["id"], "fail",
                      f"{rule['title']}: документация Google требует, на странице нет — "
                      + "; ".join(missing), entity=label,
@@ -806,6 +823,25 @@ def _required_checks(rows: Rows, node: dict, types: list, label: str, via: str |
 
 # ------------------------------------------------------------------------------- проверка сущности
 
+_ITEM_REF_KEYS = {"@id", "name", "url", "image"}
+
+
+def _is_ref(node: dict) -> bool:
+    oid = node.get("@id")
+    return isinstance(oid, str) and bool(oid.strip()) and len(node) == 1
+
+
+# Бесплатное приложение Google просит размечать именно price: 0 (документация Software app);
+# vs16-E 16.11.2026: «price не больше нуля» на карточках бесплатных MCP-серверов — ложно.
+_FREE_OK_PARENTS = {"SoftwareApplication", "MobileApplication", "WebApplication", "VideoGame",
+                    "Course", "Event"}
+
+
+def _free_allowed(ent: dict) -> bool:
+    return bool(set(ent.get("parent_types") or ()) & _FREE_OK_PARENTS
+                or set(ent.get("types") or ()) & _FREE_OK_PARENTS)
+
+
 def check_entity(rows: Rows, ent: dict, ids_seen: dict, refs: list, canonical: str | None):
     node, path, types = ent["node"], ent["path"], ent["types"]
     via = ent.get("via")
@@ -814,6 +850,17 @@ def check_entity(rows: Rows, ent: dict, ids_seen: dict, refs: list, canonical: s
         oid = node.get("@id")
         if isinstance(oid, str) and oid.strip() and len(node) == 1:
             refs.append((oid.strip(), path))      # {"@id": …} — ссылка на узел, а не сущность
+            return
+        if via == "item" and isinstance(oid, str) and oid.strip() and set(node) <= _ITEM_REF_KEYS:
+            # ListItem.item = {"@id", "name"} — форма из документации Google по хлебным крошкам:
+            # тип выводится из ListItem. QA 16.11.2026 (bookmaker-ratings.ru): было high.
+            if any(r["id"] == "markup.jsonld_type" and r["status"] == "info" for r in rows.rows):
+                return  # одной строки на страницу хватит: у крошек это шаблон
+            rows.add("markup.jsonld_type", "info",
+                     "У item в списке нет @type: для ListItem.item из @id и name это допустимая "
+                     "форма, поисковик выводит тип сам", entity=path,
+                     evidence=", ".join(sorted(node)[:6]),
+                     note="Можно дописать \"@type\": \"WebPage\" (или Thing), но это не ошибка")
             return
         if set(node) - {"@id"}:
             rows.add("markup.jsonld_type", "fail",
@@ -881,7 +928,7 @@ def check_entity(rows: Rows, ent: dict, ids_seen: dict, refs: list, canonical: s
             val = _number(price)
             if val is None:
                 miss.append(f"price не читается числом: {str(price)[:30]}")
-            elif val <= 0:
+            elif val < 0 or (val == 0 and not _free_allowed(ent)):
                 miss.append(f"price не больше нуля: {val}")
         cur = node.get("priceCurrency")
         if cur is not None and not (isinstance(cur, str) and _CURRENCY.match(str(cur).strip())):
@@ -942,7 +989,7 @@ def check_entity(rows: Rows, ent: dict, ids_seen: dict, refs: list, canonical: s
 # Типографика: в разметке и в видимом тексте одно и то же слово часто набрано разными
 # символами — &nbsp; против пробела, неразрывный дефис против обычного, «ёлочки» против
 # кавычек. Без приведения к одному виду сравнение даёт ложные «значения не видны».
-_DROP_CHARS = str.maketrans(dict.fromkeys("­​‌‍⁠﻿", ""))
+_DROP_CHARS = str.maketrans(dict.fromkeys("\u00ad\u200b\u200c\u200d\u2060\ufeff", ""))
 _FOLD_CHARS = str.maketrans({
     " ": " ", " ": " ", " ": " ", " ": " ", " ": " ", " ": " ",
     "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "―": "-",
@@ -958,8 +1005,13 @@ def _plain(text) -> str:
 
 
 def _visible_values(rows: Rows, entities: list, visible: str, hydration: dict | None = None,
-                    other_formats: list | None = None):
+                    other_formats: list | None = None, broken_blocks: int = 0):
     """facts-2026 §6 / sd-policies: размечать только видимое. Эвристика по числам и названиям."""
+    if not entities and broken_blocks:
+        rows.add("markup.visible_values", "skip",
+                 f"JSON-LD есть, но не разбирается (блоков: {broken_blocks}): значения сверить "
+                 "нельзя", note="Это «нет данных», а не «у сайта всё хорошо»")
+        return
     if not entities:
         # В сущности разбирается только JSON-LD. Раньше пустой список давал «норма»:
         # страница с ценой и рейтингом в микроданных получала зелёную строку, хотя
@@ -992,6 +1044,7 @@ def _visible_values(rows: Rows, entities: list, visible: str, hydration: dict | 
     # держим второй текст, в котором разделители разрядов между цифрами убраны.
     norm_digits = re.sub(r"(?<=\d)[ ']+(?=\d)", "", norm)
     missing = []
+    checked = 0
     for ent in entities:
         node, types = ent["node"], ent["types"]
         label = (types[0] if types else "?") + " @ " + ent["path"]
@@ -999,6 +1052,7 @@ def _visible_values(rows: Rows, entities: list, visible: str, hydration: dict | 
             v = _number(node.get(key))
             if v is None:
                 continue
+            checked += 1
             shapes = {f"{v:g}", f"{v:.2f}".rstrip("0").rstrip(".")}
             if v == int(v):
                 shapes.add(str(int(v)))
@@ -1010,13 +1064,33 @@ def _visible_values(rows: Rows, entities: list, visible: str, hydration: dict | 
             if isinstance(val, str) and len(val.strip()) >= 8 and types and types[0] in (
                     "Product", "Event", "Recipe", "JobPosting", "SoftwareApplication", "Article",
                     "NewsArticle", "BlogPosting"):
-                if _plain(val) not in norm:
+                checked += 1
+                if not _shown(val, norm):
                     missing.append({"entity": label, "prop": key, "value": val.strip()[:60]})
+    if not checked:
+        # K-markup 16.11.2026 (Б5): «норма» при нуле сверенных значений.
+        rows.add("markup.visible_values", "skip",
+                 "Сверять нечего: в разметке нет полей, которые мы сверяем с текстом (price, "
+                 "ratingValue, name/headline у Product, Event, Article и т. п.)",
+                 note="Это «нет данных», а не «у сайта всё хорошо»")
+        return
     rows.add("markup.visible_values", "fail" if missing else "pass",
              f"Значений разметки не нашлось в видимом тексте: {len(missing)}" if missing
              else "Проверенные значения разметки есть в видимом тексте",
              value=missing[:10] or None,
              note="Эвристика: текст сравнивается без форматирования, проверьте глазами")
+
+
+# «Заголовок - Рейтинг Букмекеров» в headline при H1 «Заголовок»: хвост с названием сайта после
+# разделителя — тот же заголовок (K-markup 16.11.2026, Б7: high «значение не видно» на 3 из 10).
+_TITLE_TAIL = re.compile(r"\s+[-–—|·:]\s+[^-–—|·:]{2,60}$")
+
+
+def _shown(val: str, norm: str) -> bool:
+    if _plain(val) in norm:
+        return True
+    head = _TITLE_TAIL.sub("", val.strip())
+    return head != val.strip() and len(head) >= 8 and _plain(head) in norm
 
 
 # ------------------------------------------------------------------------------------- the report
@@ -1075,7 +1149,10 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
                 ent["line"] = b["line"]
             entities.extend(found)
     if not ctx_total:
-        rows.add("markup.jsonld_context", "skip", "Блоков JSON-LD нет")
+        # K-markup 16.11.2026 (Б8): при неразобранном блоке тут стояло «Блоков JSON-LD нет».
+        rows.add("markup.jsonld_context", "skip",
+                 f"Блок JSON-LD есть, но не разбирается ({len(broken)} из {len(jsonld_blocks)}): "
+                 "@context проверить нельзя" if broken else "Блоков JSON-LD нет")
     else:
         rows.add("markup.jsonld_context", "fail" if ctx_bad else "pass",
                  "; ".join(ctx_bad[:5]) if ctx_bad
@@ -1128,10 +1205,13 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
     rows.add("markup.duplicate_types", "info" if repeated else "pass",
              "Один тип в нескольких сущностях: " + ", ".join(f"{t}×{n}" for t, n in repeated.items())
              if repeated else "Главные типы не дублируются", value=repeated or None)
+    real_count = sum(1 for e in entities if not _is_ref(e["node"]))
     rows.add("markup.jsonld_depth", "info",
-             f"Сущностей {len(entities)}, самая глубокая ветка {deepest[0]}, "
+             f"Сущностей {real_count}"
+             + (f" (и ссылок на @id {len(entities) - real_count})" if len(entities) > real_count else "")
+             + f", самая глубокая ветка {deepest[0]}, "
              f"байт в блоках {sum(b.get('bytes', 0) for b in jsonld_blocks)}",
-             value={"entities": len(entities), "depth": deepest[0]})
+             value={"entities": real_count, "refs": len(entities) - real_count, "depth": deepest[0]})
     if not type_counts:
         rows.add("markup.yandex_supported", "skip", "Типов в разметке нет")
     else:
@@ -1153,7 +1233,22 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
     else:
         rows.add("markup.retired_type", "pass", "Снятых типов на странице нет")
     _visible_values(rows, entities[:MAX_ENTITIES], visible_text, hydration,
-                    other_formats=[n for n in formats if n != "JSON-LD"])
+                    other_formats=[n for n in formats if n != "JSON-LD"], broken_blocks=len(broken))
+    # Поля микроданных и RDFa скрипт не разбирает. Тип, который там есть, а в JSON-LD нет,
+    # получает честную строку «не проверялось», а не тишину (K-markup 16.11.2026, Б6).
+    jsonld_types = {t for ent in entities for t in ent["types"]}
+    seen_rules = {r["id"] for r in rows.rows}
+    for fmt, names in (("microdata", microdata_types), ("RDFa", [str(t).rstrip("/").split("/")[-1]
+                                                                 .split(":")[-1] for t in rdfa_types])):
+        for rule in REQ_RULES:
+            hit = sorted(set(names) & set(rule["types"]) - jsonld_types)
+            if hit and rule["id"] not in seen_rules:
+                rows.add(rule["id"], "skip",
+                         f"{', '.join(hit)} размечен в {fmt}: обязательные и рекомендуемые поля "
+                         "не проверялись — скрипт разбирает поля только в JSON-LD",
+                         note="Это «нет данных», а не «у сайта всё хорошо»: проверьте в "
+                              "валидаторе schema.org или в Rich Results Test")
+                seen_rules.add(rule["id"])
 
     by_status = Counter(r["status"] for r in rows.rows)
     first = [r["id"] for r in rows.rows if r["status"] in ("fail", "warn")
@@ -1167,7 +1262,9 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
         "entities": [{"path": e["path"], "types": e["types"], "line": e.get("line"),
                       "props": sorted(k for k in e["node"] if not k.startswith("@"))[:40]}
                      for e in entities[:MAX_ENTITIES]],
-        "entity_count": len(entities),
+        # {"@id": …} — ссылка на узел, а не сущность (K-markup 16.11.2026, Б11: 6 вместо 3)
+        "entity_count": sum(1 for e in entities if not _is_ref(e["node"])),
+        "id_refs": sum(1 for e in entities if _is_ref(e["node"])),
         "entities_truncated": len(entities) > MAX_ENTITIES,
         "microdata_types": sorted(set(microdata_types)),
         "rdfa_types": sorted(set(rdfa_types)),
@@ -1204,14 +1301,15 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--list-checks", action="store_true", help="print every check and its source")
         http_safe.add_pace_args(p)
         p.add_argument("--out")
+        p.add_argument("--force", action="store_true", help="перезаписать существующий файл, даже если его писал не papa-seo")
         args = p.parse_args(argv)
         if args.out:
-            http_safe.safe_out_path(args.out)
+            http_safe.safe_out_path(args.out, force=args.force)
         if args.list_checks:
             rows = check_rows()
             return http_safe.emit({"checks": rows, "count": len(rows),
                                    "note": "Серьёзность — наша по умолчанию; registry.json главнее."},
-                                  args.out, {"count": len(rows)})
+                                  args.out, {"count": len(rows)}, force=args.force)
         if not args.source:
             raise http_safe.CliError("give an HTML/JSON file or a URL", "bad_arguments")
         delay = http_safe.check_delay(args.delay)
@@ -1247,7 +1345,7 @@ def main(argv: list[str] | None = None) -> int:
                    "fail": result["checks_summary"].get("fail", 0),
                    "warn": result["checks_summary"].get("warn", 0),
                    "first_to_fix": result["checks_summary"]["first_to_fix"]}
-        return http_safe.emit(result, args.out, summary)
+        return http_safe.emit(result, args.out, summary, force=args.force)
 
     return http_safe.run_cli(body)
 

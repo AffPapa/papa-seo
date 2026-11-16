@@ -490,6 +490,19 @@ class DocumentAndHeaderTest(unittest.TestCase):
         mid = self.rows(fetch={"elapsed_ms": 1200, "chain": [], "final_url": "https://a.test/"})
         self.assertEqual(mid["speed.ttfb"]["status"], "warn")
 
+    def test_single_ttfb_sample_is_low_and_cold_cdn_is_info(self):
+        """M-sonnet и QA 16.11.2026: один замер TTFB стоял в топе очереди на всех страницах,
+        а при cf-cache-status: MISS повтор давал 60–133 мс вместо 1147."""
+        fetch = {"ttfb_ms": 1500, "chain": [], "final_url": "https://a.test/"}
+        slow = self.rows(fetch=fetch)["speed.ttfb"]
+        self.assertEqual((slow["status"], slow["severity"]), ("warn", "low"))
+        self.assertTrue(slow["severity_by_context"])
+        cold = self.rows(fetch=fetch, headers={"cf-cache-status": "MISS"})["speed.ttfb"]
+        self.assertEqual(cold["status"], "info")
+        self.assertIn("холодном кэше", cold["observation"])
+        dynamic = self.rows(fetch=fetch, headers={"cf-cache-status": "DYNAMIC"})["speed.ttfb"]
+        self.assertEqual(dynamic["status"], "warn", "DYNAMIC — ответ сервера всегда, не холодный кэш")
+
     def test_redirects_before_page_and_tls(self):
         rows = self.rows(fetch={"elapsed_ms": 50, "final_url": "https://a.test/x",
                                 "chain": [{"status": 301}, {"status": 302}, {"status": 200}]})
@@ -596,6 +609,33 @@ class DocumentAndHeaderTest(unittest.TestCase):
                '</script></head><body><main><p>Published on 2019-01-01.</p></main></body></html>')
         self.assertEqual(self.rows(off)["markup.date_vs_text"]["status"], "warn")
 
+    def test_abbreviated_month_in_text_matches_markup(self):
+        """QA 16.11.2026 (bookmaker-ratings.ru): «<time>13 Апр, 16:49</time>» не узнавался —
+        скрипт знал только «апреля», и dateModified считался «нет в тексте»."""
+        html = ('<html lang=ru><head><title>t</title><script type="application/ld+json">'
+                '{"@context":"https://schema.org","@type":"Article",'
+                '"dateModified":"2026-04-13T13:49:07.000Z"}</script></head><body><main>'
+                '<p>Обновлено <time datetime="2026-04-13T13:49:07.000Z">13 Апр, 16:49</time></p>'
+                '</main></body></html>')
+        self.assertEqual(self.rows(html)["markup.date_vs_text"]["status"], "pass")
+        for text, want in (("5 сент. 2025", ["2025-09-05"]), ("Apr 13, 2026", ["2026-04-13"]),
+                           ("Sept. 5, 2025", ["2025-09-05"]), ("3 марта", ["--03-03"]),
+                           ("12 марок", []), ("20 мартини", [])):
+            with self.subTest(text=text):
+                self.assertEqual(pf._text_dates(text)[0], want)
+
+    def test_time_datetime_dedupe_and_upload_date(self):
+        """K-markup 16.11.2026 (Б4): <time datetime> — дата видимого текста; uploadDate видео
+        не сверяется; одна дата у двух сущностей — одна строка."""
+        html = ('<html lang=ru><head><title>t</title><script type="application/ld+json">'
+                '{"@context":"https://schema.org","@type":"Article","datePublished":"2026-04-13",'
+                '"mainEntityOfPage":{"@type":"WebPage","datePublished":"2026-04-13"},'
+                '"video":{"@type":"VideoObject","uploadDate":"2020-03-04"}}</script></head><body>'
+                '<p>Опубликовано <time datetime="2026-04-13">вчера</time></p></body></html>')
+        row = self.rows(html)["markup.date_vs_text"]
+        self.assertEqual(row["status"], "pass")
+        self.assertIn("Единственная", row["observation"])
+
     def test_og_type_extra_properties(self):
         html = ('<html lang=en><head><title>t</title>'
                 '<meta property="og:type" content="article"></head><body>x</body></html>')
@@ -643,6 +683,37 @@ class DocumentAndHeaderTest(unittest.TestCase):
         self.assertEqual(self.rows()["mobile.alternate_media_link"]["status"], "pass")
 
 
+class TrackingPixelTest(unittest.TestCase):
+    """QA 16.11.2026 (moysklad.ru): пиксель Метрики в <noscript> был единственной «картинкой без
+    размеров» и стоял в топ-3 страницы. Счётчики — не содержимое: в проверки картинок не идут."""
+
+    def rows(self, body):
+        html = f"<html lang=ru><head><title>t</title></head><body>{body}</body></html>"
+        r = pf.analyze_html(html, url="https://a.test/")
+        return by_id(r), r
+
+    def test_noscript_counter_is_not_counted(self):
+        rows, r = self.rows('<img src="/a.jpg" alt="Товар" width="300" height="200">'
+                            '<noscript><div><img src="https://mc.yandex.ru/watch/5773414" '
+                            'style="position:absolute;left:-9999px" alt=""></div></noscript>')
+        self.assertEqual(rows["images.dimensions"]["status"], "pass")
+        self.assertEqual(r["images_summary"]["tracking"], 1)
+        self.assertEqual(r["images_summary"]["no_dimensions"], 0)
+
+    def test_pixel_and_counter_url_outside_noscript(self):
+        rows, _ = self.rows('<img src="/a.jpg" alt="x" width="300" height="200">'
+                            '<img src="https://www.facebook.com/tr?id=1&ev=PageView">'
+                            '<img src="/p.gif" width="1" height="1">')
+        self.assertEqual(rows["images.dimensions"]["status"], "pass")
+        self.assertEqual(rows["images.alt_missing"]["status"], "pass")
+
+    def test_real_image_without_size_still_warns(self):
+        rows, _ = self.rows('<img src="/banner.jpg" alt="Баннер">'
+                            '<noscript><img src="https://mc.yandex.ru/watch/1"></noscript>')
+        self.assertEqual(rows["images.dimensions"]["status"], "warn")
+        self.assertIn("1 из 1", rows["images.dimensions"]["observation"])
+
+
 class HiddenMarkupTest(unittest.TestCase):
     """markup.hidden_markup: отличить спрятанный от человека текст от штатных машинных значений.
 
@@ -688,6 +759,27 @@ class HiddenMarkupTest(unittest.TestCase):
         self.assertEqual(row["status"], "fail")
         self.assertEqual(row["severity"], "high")
         self.assertIn("facts-2026", row["note"])
+
+    def test_responsive_hide_is_not_hidden(self):
+        """QA 16.11.2026: `d-none d-md-block` и `d-none d-lg-inline-block` у хлебных крошек
+        (dentalfantasy.ru, moysklad.ru) — на десктопе видны, а скрипт давал high."""
+        for cls in ("d-none d-md-block", "breadcrumb-item d-none d-lg-inline-block active",
+                    "hidden md:flex", "d-none d-xxl-grid"):
+            with self.subTest(cls=cls):
+                row = self.row(f'<nav class="{cls}"><ol itemscope '
+                               'itemtype="https://schema.org/BreadcrumbList">'
+                               '<li itemprop="itemListElement" itemscope '
+                               'itemtype="https://schema.org/ListItem">'
+                               '<span itemprop="name">Главная</span></li></ol></nav>')
+                self.assertEqual(row["status"], "pass")
+
+    def test_plain_d_none_is_still_hidden(self):
+        for cls in ("d-none", "d-none d-print-block", "hidden"):
+            with self.subTest(cls=cls):
+                row = self.row(f'<div class="{cls}"><div itemscope '
+                               'itemtype="https://schema.org/Article">'
+                               '<span itemprop="headline">Только для поисковика</span></div></div>')
+                self.assertEqual(row["status"], "fail")
 
     def test_table_class_is_not_read_as_a_tab(self):
         row = self.row('<div class="price-table" style="display:none">'
