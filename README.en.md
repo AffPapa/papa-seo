@@ -2,7 +2,7 @@
 
 An SEO, GEO and content skill for Claude Code and OpenAI Codex: audits a page or a site for Google, Yandex and AI search, writes briefs and articles, and de-AIs text.
 
-[Русская версия](README.md) · [Quick start (RU)](QUICKSTART.md) · [Security (RU)](SECURITY.md) · [Changelog (RU)](CHANGELOG.md) · [Project page](https://affpapa.org/papa-seo)
+[Русская версия](README.md) · [Quick start (RU)](QUICKSTART.md) · [Security (RU)](SECURITY.md) · [Changelog (RU)](CHANGELOG.md) · [Project page](https://affpapa.org/papa-seo) · [How we tested it (RU)](https://affpapa.org/papa-seo/research)
 
 It isn't a hosted SEO tool. The skill runs inside your coding agent, reads the live HTML and the exports you give it, and attaches evidence to every claim it makes about your site.
 

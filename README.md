@@ -2,7 +2,7 @@
 
 Скил для Claude Code и OpenAI Codex: SEO-аудит страницы и сайта под Google, Яндекс и AI-поиск, ТЗ копирайтеру, статьи и рерайт без признаков ИИ.
 
-[English](README.en.md) · [Быстрый старт](QUICKSTART.md) · [Безопасность](SECURITY.md) · [Изменения](CHANGELOG.md) · [Страница проекта](https://affpapa.org/papa-seo)
+[English](README.en.md) · [Быстрый старт](QUICKSTART.md) · [Безопасность](SECURITY.md) · [Изменения](CHANGELOG.md) · [Страница проекта](https://affpapa.org/papa-seo) · [Как мы проверяли](https://affpapa.org/papa-seo/research)
 
 Это SEO с помощью нейросети, но не онлайн-сервис: скил работает внутри вашего агента, читает живой HTML и ваши выгрузки и к каждому выводу прикладывает доказательство.
 
