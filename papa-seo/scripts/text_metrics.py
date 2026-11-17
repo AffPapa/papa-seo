@@ -1177,6 +1177,13 @@ def letter_words(s: str) -> list[str]:
     return [w for w in words_of(s) if any(ch.isalpha() for ch in w)]
 
 
+def key_words(s: str) -> list[str]:
+    """Слова для сверки с ключом: дефис внутри слова — граница, как пробел. Ключ «интернет
+    магазин чая» и текст «Интернет-магазин чая» (и наоборот) дают одни и те же слова.
+    Для счёта слов текста по-прежнему letter_words: там «интернет-магазин» — одно слово."""
+    return [p for w in letter_words(s) for p in w.split("-") if any(ch.isalpha() for ch in p)]
+
+
 def detect_lang(text: str) -> str:
     cyr = sum(1 for ch in text if ("а" <= ch.lower() <= "я") or ch in "ёЁ")
     lat = sum(1 for ch in text if "a" <= ch.lower() <= "z")
@@ -1354,7 +1361,7 @@ def key_in_zone(zone: dict, kw_lc: list[str], kstems: list[str],
         kw_lc = [p for w in kw_lc for p in re.split(r"[\W_]+", w) if p]
         kstems = [stem(w) for w in kw_lc if not is_stop(w)] or [stem(w) for w in kw_lc] or kstems
     for n, item in enumerate(zone["items"], 1):
-        toks = url_tokens(item) if is_url else [_lc(w) for w in letter_words(item)]
+        toks = url_tokens(item) if is_url else [_lc(w) for w in key_words(item)]
         # Служебные слова отбрасываются и в зоне, как в ключе и в тексте: иначе «Программа для
         # склада» давала exact 1 и morphological 0 (C-content 16.11.2026, C3).
         stems = [stem(w) for w in toks if not is_stop(w)]
@@ -1725,10 +1732,20 @@ def analyze(text: str, keys: list[str] | None = None, lang: str = "auto",
     }
 
     if keys:
-        segments = seg_stems
+        # Ключ сверяется со словами, где дефис — граница (key_words): «интернет-магазин»
+        # в тексте находится по ключу «интернет магазин», и наоборот.
+        seg_lc, segments = [], []
+        for kind, t in blocks:
+            for part in (split_sentences(t) if kind == "prose" else [t]):
+                kwords = key_words(part)
+                if kwords:
+                    seg_lc.append([_lc(w) for w in kwords])
+                st = [stem(w) for w in kwords if not is_stop(w)]
+                if st:
+                    segments.append(st)
         out_keys = []
         for key in keys:
-            kw = letter_words(key)
+            kw = key_words(key)
             kw_lc = [_lc(w) for w in kw]
             kstems_full = [stem(w) for w in kw]
             kstems = [stem(w) for w in kw if not is_stop(w)] or kstems_full

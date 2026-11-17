@@ -939,3 +939,31 @@ class TestSafety(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HyphenInKeyTest(unittest.TestCase):
+    """0.2.4: дефис внутри слова в тексте совпадает с пробелом в ключе и наоборот."""
+
+    HTML = ('<html><head><title>Чай</title></head><body><main><h1>Интернет-магазин чая</h1>'
+            '<p>Интернет-магазин чая с доставкой по Москве.</p><p>Второй абзац.</p></main></body></html>')
+
+    def zones(self, key, html=None):
+        r = tm.analyze(html or self.HTML, keys=[key], is_html=True, url="https://s.ru/")
+        return r["keys"][0]
+
+    def test_space_in_key_finds_hyphen_in_text(self):
+        k = self.zones("интернет магазин чая")
+        self.assertTrue(k["zones"]["h1"]["present"])
+        self.assertEqual(k["zones"]["h1"]["exact_forms"], 1)
+        self.assertTrue(k["zones"]["first_paragraph"]["present"])
+        self.assertEqual(k["exact_forms"], 2)
+
+    def test_hyphen_in_key_finds_space_in_text(self):
+        html = self.HTML.replace("Интернет-магазин", "Интернет магазин")
+        k = self.zones("интернет-магазин чая", html)
+        self.assertEqual(k["zones"]["h1"]["exact_forms"], 1)
+        self.assertTrue(k["zones"]["first_paragraph"]["present"])
+
+    def test_word_count_keeps_hyphenated_word_whole(self):
+        self.assertEqual(tm.letter_words("интернет-магазин чая"), ["интернет-магазин", "чая"])
+        self.assertEqual(tm.key_words("интернет-магазин чая"), ["интернет", "магазин", "чая"])

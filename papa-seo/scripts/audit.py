@@ -14,7 +14,8 @@
     text_metrics.analyze                      слова, ритм, тошнота, вода, ключи
     deai_scan.scan                            штампы, артефакты чат-ботов, невидимые символы
     robots_check.fetch_robots / build_report  доступ ботов по RFC 9309 и правилам Яндекса
-    sitemap_check.fetch_sitemap / analyze     карта сайта (по флагу --sitemap)
+    sitemap_check.fetch_sitemap / analyze     карта сайта (в --site по умолчанию, иначе --sitemap)
+    link_graph.Graph                          перелинковка внутри выборки (--site, --pages)
 
 Выход: HTML-отчёт (`--out`), полный JSON (`--json`), короткая сводка в stdout.
 
@@ -32,7 +33,7 @@ import re
 import sys
 import time
 from collections import Counter
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import http_safe  # noqa: E402
@@ -42,13 +43,14 @@ import text_metrics  # noqa: E402
 import deai_scan  # noqa: E402
 import robots_check  # noqa: E402
 import sitemap_check  # noqa: E402
+import link_graph  # noqa: E402
 
 try:  # в пакете есть; без него параметры разметки честно останутся «не проверяли»
     import schema_check  # type: ignore # noqa: E402
 except Exception:  # pragma: no cover
     schema_check = None
 
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAX_PAGES = 20
 EXIT_PAGE_NOT_OK = 2  # одна страница, отчёт готов, но она отвечает не 2xx (404, 500…)
@@ -63,6 +65,11 @@ SITE_CHILDREN_FETCH = 10
 # десять карт по нескольку мегабайт ради четырёх адресов.
 SITE_URLS_PER_CHILD = 2
 SITE_HOMEPAGE_LINKS = 40
+# Разделы сайта по карте: сколько строк показывать (остальные — одной строкой «ещё N»).
+SITE_SECTIONS_SHOWN = 12
+# Внутренних ссылок со страницы для графа выборки: страница-каталог с тысячами ссылок
+# не должна раздувать память и --full JSON.
+GRAPH_LINKS_PER_PAGE = 2000
 MAX_REGISTRY_BYTES = 4 * 1024 * 1024
 # Видимый текст: сколько символов отдаётся deai_scan и сколько хранится для проверок и schema.
 VISIBLE_CHARS = 200000
@@ -440,29 +447,119 @@ def adapter_robots(url: str, *, fetcher, cache: dict | None = None) -> dict:
                                      roster_warnings=roster_warnings, base_origin=origin, full=False)
 
 
-def adapter_sitemap(url: str, *, fetcher, cache: dict | None = None) -> dict:
-    """sitemap_check: структура карты сайта. Дочерние карты не обходим.
-    Карту, которую уже скачал обход сайта (`cache`), второй раз не запрашиваем."""
-    sm_url = _origin_of(url) + "/sitemap.xml"
-    hit = (cache or {}).get(sm_url)
-    parsed, meta = hit if hit else sitemap_check.fetch_sitemap(
-        sm_url, fetcher, allow_local=bool(getattr(fetcher, "allow_local", False)))
-    report = sitemap_check.analyze(parsed, sitemap_url=sm_url, site=url)
-    report["source"] = meta
-    return report
+def _sitemap_error(sm_url: str, exc: Exception) -> dict:
+    return {"sitemap": sm_url, "error": getattr(exc, "code", type(exc).__name__),
+            "detail": http_safe.escape_snippet(str(getattr(exc, "message", exc)), 160)}
+
+
+def adapter_sitemap(url: str, *, fetcher, cache: dict | None = None, scan: dict | None = None) -> dict:
+    """sitemap_check: структура карты сайта — по картам, а не по одной.
+
+    После обхода сайта (`scan` — его метаданные) разбираются карты, которые обход уже скачал
+    (`cache`): индекс и развёрнутые дочерние, в том числе карта из строки Sitemap в robots.txt.
+    Новых запросов ноль. Без обхода — один запрос /sitemap.xml, дочерние карты не обходим."""
+    errors: list[dict] = []
+    skipped_children = 0
+    if scan is not None:
+        fetched = list((cache or {}).items())
+        for note in scan.get("notes") or []:
+            if note.get("sitemap") and note.get("error"):
+                errors.append({k: note[k] for k in ("sitemap", "error", "detail") if note.get(k)})
+            skipped_children += _n(note.get("skipped_children"))
+    else:
+        sm_url = _origin_of(url) + "/sitemap.xml"
+        hit = (cache or {}).get(sm_url)
+        fetched = [(sm_url, hit)] if hit else []
+        if not hit:
+            try:
+                fetched = [(sm_url, sitemap_check.fetch_sitemap(
+                    sm_url, fetcher, allow_local=bool(getattr(fetcher, "allow_local", False))))]
+            except (sitemap_check.SitemapError, http_safe.SafeHttpError) as exc:
+                errors.append(_sitemap_error(sm_url, exc))
+    maps = []
+    for sm_url, (parsed, _meta) in fetched:
+        rep = sitemap_check.analyze(parsed, sitemap_url=sm_url, site=url)
+        maps.append({"url": sm_url, "type": rep["type"], "entries": rep["entries"],
+                     "children_total": rep["children_total"], "gzip": rep["gzip"],
+                     "bytes": rep["bytes_uncompressed"], "issues": rep["issues"],
+                     "info": rep["info"], "lastmod": rep["lastmod"]})
+    return {"maps": maps, "errors": errors, "skipped_children": skipped_children,
+            "from_scan": scan is not None}
+
+
+_LLMS_LINK = re.compile(r"^\s*[-*+]\s*\[[^\]]+\]\(\s*[^)\s]+[^)]*\)")
+
+
+def llms_outline(text: str) -> dict:
+    """Каркас llms.txt по llmstxt.org: первая непустая строка — H1 с именем (обязательна),
+    дальше разделы H2 со списками ссылок `- [имя](адрес)` (необязательны)."""
+    lines = [ln.rstrip() for ln in (text or "").splitlines()]
+    first = next((ln.strip() for ln in lines if ln.strip()), "")
+    h1 = first[2:].strip() if first.startswith("# ") else None
+    return {"h1": http_safe.escape_snippet(h1, 120) if h1 else None,
+            "first_line": http_safe.escape_snippet(first, 120),
+            "h2": sum(1 for ln in lines if ln.startswith("## ")),
+            "links": sum(1 for ln in lines if _LLMS_LINK.match(ln))}
+
+
+def _looks_like_html(body: str, content_type: str | None) -> bool:
+    if "html" in (content_type or "").lower():
+        return True
+    return body.lstrip()[:15].lower().startswith(("<!doctype", "<html", "<head", "<body"))
 
 
 def adapter_extra_file(url: str, name: str, *, fetcher) -> dict:
-    """llms.txt / ai.txt: есть ли файл и что в нём (первые строки). Запрос только по флагу."""
+    """llms.txt / ai.txt: есть ли файл и что в нём. Один запрос на хост: в --site по
+    умолчанию, для одной страницы — по флагу --ai-files.
+
+    Многие сайты на любой адрес отвечают 200 и HTML-страницей. Такой ответ — не файл:
+    он помечается `soft_404`, иначе «llms.txt есть» писалось бы про страницу 404."""
     target = f"{_origin_of(url)}/{name}"
     try:
         resp = fetcher.fetch(target, max_bytes=256 * 1024)
     except http_safe.SafeHttpError as exc:
         return {"url": target, "error": exc.code}
+    ctype = resp.headers.get("content-type")
     body = http_safe.decode_body(resp.body, resp.content_type) if 200 <= resp.status < 300 else ""
-    return {"url": target, "status": resp.status, "bytes": len(resp.body),
-            "content_type": resp.headers.get("content-type"),
-            "head": http_safe.escape_snippet(body[:400], 400)}
+    out = {"url": target, "status": resp.status, "bytes": len(resp.body), "content_type": ctype,
+           "head": http_safe.escape_snippet(body[:400], 400)}
+    if 200 <= resp.status < 300:
+        if _looks_like_html(body, ctype):
+            out["soft_404"] = True
+        elif name == "llms.txt":
+            out["outline"] = llms_outline(body)
+    return out
+
+
+def _variant_probe(url: str, fetcher) -> dict:
+    """Один запрос без перехода по редиректу: код и куда ведёт."""
+    try:
+        resp = fetcher.fetch(url, max_bytes=16 * 1024, follow_redirects=False)
+    except http_safe.SafeHttpError as exc:
+        return {"url": url, "error": exc.code}
+    loc = resp.headers.get("location")
+    return {"url": url, "status": resp.status,
+            "location": urljoin(url, loc.strip()) if loc else None}
+
+
+def adapter_host_variants(url: str, *, fetcher) -> dict:
+    """Варианты главной: http:// и www./без www. — до двух запросов на хост, без перехода
+    по редиректам (виден сам ответ: 301 или 200). Для IP-адреса и сайта, который сам открыт
+    по http, соответствующий вариант не запрашивается."""
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    port = f":{parts.port}" if parts.port else ""
+    out: dict = {"origin": f"{parts.scheme}://{parts.netloc}", "host": host}
+    if parts.scheme == "https":
+        out["http"] = _variant_probe(f"http://{host}{port}/", fetcher)
+    else:
+        out["http"] = {"skipped": "сайт сам открыт по http"}
+    if re.fullmatch(r"[\d.]+|\[[0-9a-f:]+\]", host) or host in ("localhost",) or "." not in host:
+        out["www"] = {"skipped": "у адреса нет варианта с www"}
+    else:
+        alt = host[4:] if host.startswith("www.") else "www." + host
+        out["www"] = _variant_probe(f"{parts.scheme}://{alt}{port}/", fetcher)
+    return out
 
 
 # Источники значений: по функции на скрипт. Новый скрипт в пакете — новая строка здесь
@@ -475,6 +572,7 @@ ADAPTERS = {
     "robots": adapter_robots,
     "sitemap": adapter_sitemap,
     "extra_file": adapter_extra_file,
+    "host_variants": adapter_host_variants,
 }
 
 
@@ -624,13 +722,19 @@ class Check:
 
 CHECKS: list[Check] = []
 SITE_CHECKS: list[Check] = []
+# Проверки хоста (карта сайта, llms.txt, ai.txt): файл один на сайт, поэтому строка уровня
+# сайта, но смысл у неё есть и при одной странице — если файл запрашивали.
+HOST_CHECKS: list[Check] = []
 
 
-def check(cid, group, title, *, severity="medium", kind=DET, source=None, registry_ids=(), site=False):
+def check(cid, group, title, *, severity="medium", kind=DET, source=None, registry_ids=(), site=False,
+          host=False):
     def deco(fn):
         obj = Check(fn, cid=cid, group=group, title=title, severity=severity, kind=kind,
                     source=source, registry_ids=registry_ids)
-        (SITE_CHECKS if site else CHECKS).append(obj)
+        (SITE_CHECKS if site or host else CHECKS).append(obj)
+        if host:
+            HOST_CHECKS.append(obj)
         return fn
     return deco
 
@@ -666,6 +770,12 @@ def info(observation, *, value=None, evidence=None):
 
 def nodata(reason):
     return _verdict(NODATA, reason, severity="info")
+
+
+def skipped(reason):
+    """Не проверяли, и сказано почему: файл не запрашивали, страниц мало. В счёт «проверено»
+    такая строка не идёт — в отличие от «нет данных», где запрос был."""
+    return {"verdict": NOTCHECKED, "observation": reason, "reason": reason, "severity": "info"}
 
 
 def esc(value, limit=200) -> str:
@@ -1288,14 +1398,14 @@ def key_zone_hits(ctx) -> dict:
         return {}
     out: dict[str, dict] = {}
     for key in ctx.keys:
-        words = text_metrics.letter_words(key)
+        words = text_metrics.key_words(key)
         stems = [text_metrics.stem(w) for w in words if not text_metrics.is_stop(w)]
         stems = stems or [text_metrics.stem(w) for w in words]
         if not stems:
             continue
         hits = {}
         for zone, raw in texts.items():
-            seq = [text_metrics.stem(w) for w in text_metrics.letter_words(raw)
+            seq = [text_metrics.stem(w) for w in text_metrics.key_words(raw)
                    if not text_metrics.is_stop(w)]
             hits[zone] = text_metrics.find_seq(seq, stems) if seq else 0
         out[key] = hits
@@ -1392,6 +1502,25 @@ def c_nofollow_internal(ctx):
 
 # ---------------------------------------------------------------------------- AI-поиск
 
+# Боты AI-поиска — группа search_ai ростера (references/ai-bots.yaml). До 0.2.4 здесь стояло
+# имя AI_BOTS, которое потерялось при переезде на ростер: проверка падала NameError и молча
+# писала «нет данных» на каждой странице.
+_AI_SEARCH_FALLBACK = ("OAI-SearchBot", "Claude-SearchBot", "PerplexityBot", "YandexAdditional")
+_AI_SEARCH_BOTS: frozenset | None = None
+
+
+def ai_search_bots() -> frozenset:
+    global _AI_SEARCH_BOTS
+    if _AI_SEARCH_BOTS is None:
+        try:
+            roster, _src, _warn = robots_check.load_roster(None)
+            names = {b["name"] for b in roster if b.get("group") == "search_ai"}
+        except Exception:  # noqa: BLE001 — без ростера остаётся короткий список вендоров
+            names = set()
+        _AI_SEARCH_BOTS = frozenset(names or _AI_SEARCH_FALLBACK)
+    return _AI_SEARCH_BOTS
+
+
 @check("ai.search_bots_access", "ai", "Доступ для AI-ботов", severity="medium",
        source="references/ai-bots.yaml (документация вендоров)")
 def c_ai_bots(ctx):
@@ -1400,28 +1529,16 @@ def c_ai_bots(ctx):
         return nodata("robots.txt не запрашивали")
     bots = matrix[0].get("bots") or {}
     blocked_extra = matrix[0].get("others_blocked") or []
-    rows = {k: v for k, v in bots.items() if k in AI_BOTS}
-    closed = sorted([k for k, v in rows.items() if not v] + [b for b in blocked_extra if b in AI_BOTS])
-    if not rows and not blocked_extra:
-        return nodata("В таблице доступа нет AI-ботов")
+    wanted = ai_search_bots()
+    rows = {k: v for k, v in bots.items() if k in wanted}
+    closed = sorted([k for k, v in rows.items() if not v] + [b for b in blocked_extra if b in wanted])
+    if not rows and not closed:
+        return nodata("В таблице доступа нет ботов AI-поиска")
     if closed:
-        return info("Закрыты: " + ", ".join(closed) + ". Это решение владельца, а не дефект",
-                    value=", ".join(closed))
-    return ok("Открыто всем AI-ботам из ростера", value=", ".join(sorted(rows)) or None)
-
-
-@check("ai.llms_txt", "ai", "llms.txt", severity="info", kind=HEUR,
-       source="предложение llmstxt.org; обязательным его не считает ни один поисковик")
-def c_llms(ctx):
-    data = ctx.get("llms_txt")
-    if not data:
-        return nodata("Файл не запрашивали (флаг --ai-files)")
-    if data.get("error"):
-        return info("Файл получить не удалось", value=esc(data.get("error"), 60))
-    if 200 <= _n(data.get("status")) < 300:
-        return info(f"llms.txt есть ({_qty(_n(data.get('bytes')), 'байт', 'байта', 'байт')})",
-                    evidence=esc(data.get("head"), 200))
-    return info(f"llms.txt нет (статус {data.get('status')}) — это не дефект", value=data.get("status"))
+        return info("Закрыты боты AI-поиска: " + ", ".join(closed)
+                    + ". Закрыть — решение владельца, но страницы тогда не попадут в ответы этих "
+                      "ассистентов", value=", ".join(closed))
+    return ok("Открыто всем ботам AI-поиска из ростера", value=", ".join(sorted(rows)) or None)
 
 
 @check("ai.text_addressed_to_model", "ai", "Текст, обращённый к ИИ", severity="medium",
@@ -2063,20 +2180,6 @@ def c_csr_for_ai(ctx):
     return ok("Текст есть в ответе сервера")
 
 
-@check("ai.ai_txt", "ai", "ai.txt", severity="info", kind=HEUR,
-       source="частное предложение, ни один поисковик его не требует")
-def c_ai_txt(ctx):
-    data = ctx.get("ai_txt")
-    if not data:
-        return nodata("Файл не запрашивали (флаг --ai-files)")
-    if data.get("error"):
-        return info("Файл получить не удалось", value=esc(data.get("error"), 60))
-    if 200 <= _n(data.get("status")) < 300:
-        return info(f"ai.txt есть ({_qty(_n(data.get('bytes')), 'байт', 'байта', 'байт')})",
-                    evidence=esc(data.get("head"), 200))
-    return info(f"ai.txt нет (статус {data.get('status')}) — это не дефект", value=data.get("status"))
-
-
 @check("ai.nosnippet", "ai", "nosnippet", severity="high",
        source="Google: nosnippet убирает страницу из сниппетов и из AI-ответов")
 def c_nosnippet(ctx):
@@ -2233,6 +2336,412 @@ def s_status(pages):
               else f"Все {_qty(len(pages), 'страница', 'страницы', 'страниц')} отвечают 200")
 
 
+# ---------------------------------------------------------------------------- хост: карта сайта, llms.txt
+
+SKIP_SITEMAP = "карту сайта не запрашивали: в --site она разбирается по умолчанию, для одной страницы — флаг --sitemap"
+SKIP_AI_FILES = "файл не запрашивали: в --site по умолчанию, для одной страницы — флаг --ai-files"
+
+
+def _host_data(pages, key: str):
+    """Данные хоста (карта, llms.txt) лежат в фактах той страницы, при которой их запросили."""
+    for p in pages:
+        data = (p.get("facts") or {}).get(key)
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+# Коды sitemap_check → параметр реестра и как назвать по-русски.
+SITEMAP_CODES = {
+    "unknown_root": ("access.sitemap_xml_valid", "корень не urlset и не sitemapindex"),
+    "namespace": ("access.sitemap_xml_valid", "чужое пространство имён"),
+    "mixed_index": ("access.sitemap_xml_valid", "в индексе карт есть записи <url>"),
+    "over_50000": ("access.sitemap_limits", "больше 50 000 записей в файле"),
+    "missing_loc": ("access.sitemap_abs_urls", "запись без <loc>"),
+    "not_absolute": ("access.sitemap_abs_urls", "адрес не абсолютный"),
+    "fragment": ("access.sitemap_abs_urls", "адрес с #фрагментом"),
+    "whitespace_in_loc": ("access.sitemap_abs_urls", "пробел внутри адреса"),
+    "too_long": ("access.sitemap_abs_urls", "адрес длиннее 2048 символов"),
+    "foreign_host": ("access.sitemap_host", "адрес чужого хоста"),
+    "www_variant": ("access.sitemap_host", "адрес с www и без вперемешку"),
+    "http_url": ("access.sitemap_http_urls", "адрес по http://"),
+    "duplicate": ("access.sitemap_duplicates", "адрес повторяется"),
+    "near_duplicate": ("access.sitemap_duplicates", "почти дубль (слэш, регистр)"),
+    "lastmod_invalid_format": ("access.sitemap_lastmod_format", "lastmod не в формате W3C"),
+    "lastmod_time_without_timezone": ("access.sitemap_lastmod_format", "lastmod со временем без пояса"),
+    "lastmod_invalid_date": ("access.sitemap_lastmod_format", "lastmod — несуществующая дата"),
+    "lastmod_implausibly_old": ("access.sitemap_lastmod_format", "lastmod раньше 1995 года"),
+    "lastmod_future": ("access.sitemap_lastmod_future", "lastmod в будущем"),
+    "lastmod_uniform": ("access.sitemap_lastmod_uniform", "почти у всех записей одна дата"),
+    "lastmod_all_recent": ("access.sitemap_lastmod_uniform", "все даты за последние сутки"),
+    "priority_out_of_range": ("access.sitemap_priority", "priority вне 0,0–1,0"),
+}
+# Ошибки скачивания/разбора карты → параметр реестра. http_status — карты нет, это «найдена».
+SITEMAP_FETCH_ERRORS = {"xml_invalid": "access.sitemap_xml_valid", "dtd_refused": "access.sitemap_xml_valid",
+                        "bad_gzip": "access.sitemap_xml_valid", "too_large": "access.sitemap_limits"}
+
+
+def _map_name(url: str) -> str:
+    return urlsplit(url).path or url
+
+
+@check("access.sitemap_found", "access", "Карта сайта", severity="medium",
+       source="sitemaps.org; Google: Build and submit a sitemap", host=True)
+def s_sitemap_found(pages):
+    data = _host_data(pages, "sitemap")
+    if data is None:
+        return skipped(SKIP_SITEMAP)
+    maps = data.get("maps") or []
+    errors = data.get("errors") or []
+    if maps:
+        entries = sum(_n(m.get("entries")) for m in maps if m.get("type") == "urlset")
+        kids = sum(_n(m.get("children_total")) for m in maps if m.get("type") == "sitemapindex")
+        text = f"Разобрано {_qty(len(maps), 'карта', 'карты', 'карт')}"
+        if entries:
+            text += f", адресов в них: {entries}"
+        if kids:
+            text += f"; в индексе дочерних карт: {kids}"
+        if _n(data.get("skipped_children")):
+            text += (f" (не скачивали {data['skipped_children']} — выборке хватило части; "
+                     "их структура не проверена)")
+        return ok(text, value=[_map_name(m["url"]) for m in maps[:6]])
+    broken = [e for e in errors if e.get("error") in SITEMAP_FETCH_ERRORS]
+    if broken:
+        return ok("Карта есть, но не разбирается — подробности в соседних строках",
+                  value=[_map_name(e["sitemap"]) for e in broken[:6]])
+    shown = "; ".join(f"{_map_name(e['sitemap'])} → {e.get('detail') or e.get('error')}"
+                      for e in errors[:3])
+    return warn("Карта сайта не найдена" + (f": {shown}" if shown else ""),
+                fix="Google: небольшому сайту с хорошей перелинковкой карта не обязательна. Большому "
+                    "и новому — нужна: /sitemap.xml и строка Sitemap: в robots.txt")
+
+
+def _make_sitemap_check(cid, title, severity, source, fix):
+    codes = {c for c, (pid, _) in SITEMAP_CODES.items() if pid == cid}
+    fetch_codes = {c for c, pid in SITEMAP_FETCH_ERRORS.items() if pid == cid}
+
+    def _fn(pages, _codes=codes, _fetch=fetch_codes, _fix=fix, _cid=cid):
+        data = _host_data(pages, "sitemap")
+        if data is None:
+            return skipped(SKIP_SITEMAP)
+        maps = data.get("maps") or []
+        broken = [e for e in data.get("errors") or [] if e.get("error") in _fetch]
+        if broken:
+            return bad("Карта не разбирается: " + "; ".join(
+                f"{_map_name(e['sitemap'])} — {e.get('detail') or e['error']}" for e in broken[:3]),
+                fix=_fix)
+        if not maps:
+            return nodata("Карты сайта нет — проверять нечего")
+        hits = [(m["url"], i) for m in maps for i in m.get("issues") or [] if i.get("code") in _codes]
+        where = _qty(len(maps), "карте", "картах", "картах")
+        if not hits and _cid == "access.sitemap_priority":
+            used = sum(_n((m.get("info") or {}).get(k)) for m in maps
+                       for k in ("has_priority", "has_changefreq"))
+            if used:
+                return info(f"priority или changefreq заданы в {used} записях (в {where}) — "
+                            "Google эти поля не читает, вреда от них нет", value=used)
+        if not hits:
+            return ok(f"Нарушений нет в {where}")
+        worst = min(SEVERITY_RANK.get(i.get("severity"), 9) for _, i in hits)
+        counts: Counter = Counter()
+        for _, i in hits:
+            counts[i["code"]] += _n(i.get("count"), 1) or 1
+        text = "; ".join(f"{SITEMAP_CODES[c][1]}: {n}" for c, n in counts.most_common())
+        examples = [f"{_map_name(u)}: {ex if isinstance(ex, str) else ' → '.join(map(str, ex))}"
+                    for u, i in hits for ex in (i.get("examples") or [])[:2]][:4]
+        notes = [i.get("note") for _, i in hits if i.get("note")][:2]
+        verdict = bad if worst <= SEVERITY_RANK["high"] else warn
+        return verdict(f"{text} (в {where})", evidence=esc("; ".join(examples + notes), 300) or None,
+                       fix=_fix)
+    check(cid, "access", title, severity=severity, source=source, host=True)(_fn)
+
+
+for _spec in (
+        ("access.sitemap_xml_valid", "XML карты сайта", "high", "sitemaps.org protocol",
+         "Отдавать валидный XML по протоколу sitemaps.org: urlset или sitemapindex в его пространстве имён"),
+        ("access.sitemap_limits", "Лимиты карты сайта", "high", "sitemaps.org: 50 000 адресов, 50 МБ",
+         "Разбить карту на несколько файлов и собрать их индексом"),
+        ("access.sitemap_abs_urls", "Адреса в карте абсолютные", "medium", "sitemaps.org protocol",
+         "В <loc> — полный адрес со схемой и хостом, без пробелов и #"),
+        ("access.sitemap_host", "Хост адресов в карте", "medium", "sitemaps.org: адреса своего хоста",
+         "Оставить в карте адреса только того хоста (с www или без), который канонический"),
+        ("access.sitemap_http_urls", "http:// в карте", "medium", "Google: Build and submit a sitemap",
+         "Перечислять в карте канонические https-адреса"),
+        ("access.sitemap_duplicates", "Повторы в карте", "low", "Google: Build and submit a sitemap",
+         "Один адрес — одна запись; варианты со слэшем и без сводить к каноническому"),
+        ("access.sitemap_lastmod_format", "Формат lastmod", "low", "sitemaps.org: W3C Datetime",
+         "Дата в формате W3C: 2026-11-17 или 2026-11-17T10:00:00+03:00"),
+        ("access.sitemap_lastmod_future", "lastmod в будущем", "low", "Google: Build and submit a sitemap",
+         "Ставить дату последнего значимого изменения, а не плановую"),
+        ("access.sitemap_lastmod_uniform", "lastmod похож на время сборки", "low",
+         "Google: lastmod используется, если ему можно верить",
+         "Писать в lastmod дату изменения страницы, а не время генерации карты"),
+        ("access.sitemap_priority", "priority и changefreq", "info", "Google: priority и changefreq игнорирует",
+         "priority держать в 0,0–1,0 или убрать: Google это поле не читает"),
+):
+    _make_sitemap_check(*_spec)
+
+
+@check("ai.llms_txt", "ai", "llms.txt", severity="info",
+       source="предложение llmstxt.org; обязательным его не считает ни один поисковик", host=True)
+def s_llms(pages):
+    return _extra_file_verdict(_host_data(pages, "llms_txt"), "llms.txt")
+
+
+@check("ai.ai_txt", "ai", "ai.txt", severity="info",
+       source="частное предложение, ни один поисковик его не требует", host=True)
+def s_ai_txt(pages):
+    return _extra_file_verdict(_host_data(pages, "ai_txt"), "ai.txt")
+
+
+def _extra_file_verdict(data, name: str):
+    if data is None:
+        return skipped(SKIP_AI_FILES)
+    if data.get("error"):
+        return nodata(f"{name}: получить не удалось ({esc(data.get('error'), 60)})")
+    status = _n(data.get("status"))
+    if 200 <= status < 300 and data.get("soft_404"):
+        return info(f"{name} нет: на адрес отвечает HTML-страница с кодом {status} — так сервер "
+                    "отвечает на любой несуществующий адрес. Это не дефект", value=status)
+    if 200 <= status < 300:
+        return info(f"{name} есть ({_qty(_n(data.get('bytes')), 'байт', 'байта', 'байт')})",
+                    evidence=esc(data.get("head"), 200))
+    return info(f"{name} нет (статус {data.get('status')}) — это не дефект", value=data.get("status"))
+
+
+@check("ai.llms_txt_format", "ai", "Формат llms.txt", severity="info",
+       source="llmstxt.org — предложение, не стандарт", host=True)
+def s_llms_format(pages):
+    data = _host_data(pages, "llms_txt")
+    if data is None:
+        return skipped(SKIP_AI_FILES)
+    outline = data.get("outline")
+    if not outline:
+        return nodata("llms.txt нет — формат проверять не на чем")
+    tail = (f"разделов H2: {outline['h2']}, ссылок списком: {outline['links']}")
+    if outline.get("h1"):
+        return ok(f"H1 «{outline['h1']}»; {tail}")
+    return warn(f"Первая строка — не H1 с именем проекта: «{outline.get('first_line') or ''}»; {tail}",
+                fix="По llmstxt.org файл начинается строкой «# Имя проекта»; остальное необязательно")
+
+
+SKIP_VARIANTS = ("http:// и www-вариант не запрашивали: в --site по умолчанию, для одной страницы — "
+                 "флаг --host-variants")
+_VARIANT_ERRORS = {"dns_failed": "имени нет в DNS", "dns_timeout": "DNS не ответил",
+                   "connection_failed": "соединение не устанавливается", "timeout": "не ответил вовремя",
+                   "tls_error": "ошибка TLS"}
+
+
+def _variant_data(pages, key: str):
+    data = _host_data(pages, "host_variants")
+    if data is None:
+        return None, skipped(SKIP_VARIANTS)
+    if data.get("error"):
+        return None, nodata(f"проверить не удалось: {esc(data['error'], 80)}")
+    probe = data.get(key) or {}
+    if probe.get("skipped"):
+        return None, nodata(probe["skipped"])
+    return (data, probe), None
+
+
+def _same_origin(loc: str | None, origin: str) -> bool:
+    return bool(loc) and _origin_of(loc).lower() == origin.lower()
+
+
+@check("access.https_redirect", "access", "HTTP ведёт на HTTPS", severity="high",
+       source="Google Search Essentials: technical requirements", host=True)
+def s_https_redirect(pages):
+    got, early = _variant_data(pages, "http")
+    if early:
+        return early
+    data, probe = got
+    shown = f"{probe['url']} → {probe.get('status') or probe.get('error')}"
+    if probe.get("error"):
+        why = _VARIANT_ERRORS.get(probe["error"], probe["error"])
+        return ok(f"По http сайт не отвечает ({why}): дубля по схеме нет", value=shown)
+    st, loc = _n(probe.get("status")), probe.get("location")
+    if st in (301, 308) and loc and loc.lower().startswith("https://"):
+        return ok(f"http:// постоянным редиректом {st} ведёт на {esc(loc, 120)}", value=st)
+    if st in (302, 303, 307) and loc and loc.lower().startswith("https://"):
+        return dict(warn(f"http:// ведёт на https временным редиректом {st}", value=st,
+                         evidence=esc(f"{shown} → {loc}", 200), severity="low",
+                         fix="Сделать редирект постоянным: 301 или 308"), severity_by_context=True)
+    if 200 <= st < 300:
+        return bad(f"http:// отдаёт страницу ({st}) без перевода на https: у каждой страницы два адреса",
+                   value=st, evidence=esc(shown, 200),
+                   fix="Постоянный редирект 301 со всех http-адресов на https-версию")
+    return warn(f"http:// отвечает {st}" + (f" и ведёт на {esc(loc, 120)}" if loc else ""),
+                value=st, evidence=esc(shown, 200), fix="Постоянный редирект 301 на https-версию главной")
+
+
+@check("access.host_duplicates", "access", "Дубли хоста (www и без www)", severity="medium",
+       source="Google: Consolidate duplicate URLs", host=True)
+def s_host_duplicates(pages):
+    got, early = _variant_data(pages, "www")
+    if early:
+        return early
+    data, probe = got
+    if probe.get("error"):
+        why = _VARIANT_ERRORS.get(probe["error"], probe["error"])
+        return ok(f"Вариант {esc(probe['url'], 120)} не отвечает ({why}): дубля по хосту нет")
+    st, loc = _n(probe.get("status")), probe.get("location")
+    shown = f"{probe['url']} → {st}" + (f" → {loc}" if loc else "")
+    if st in (301, 308) and _same_origin(loc, data["origin"]):
+        return ok(f"Вариант хоста постоянным редиректом {st} ведёт на основной", value=esc(shown, 200))
+    if st in (302, 303, 307) and _same_origin(loc, data["origin"]):
+        return dict(warn(f"Вариант хоста ведёт на основной временным редиректом {st}", value=st,
+                         evidence=esc(shown, 200), severity="low", fix="Сделать редирект постоянным: 301"),
+                    severity_by_context=True)
+    if 200 <= st < 300:
+        return warn("Сайт открывается и с www, и без: у страниц два адреса", value=st,
+                    evidence=esc(shown, 200),
+                    fix="Выбрать основной вариант и вести на него 301 со второго")
+    return info(f"Вариант хоста отвечает {st}", value=esc(shown, 200))
+
+
+# ---------------------------------------------------------------------------- перелинковка внутри выборки
+
+def _norm_key(url: str) -> str | None:
+    """Ключ для сверки ссылки со страницей выборки: адрес без #, хвостовой слэш не различаем
+    (/a и /a/ — одна страница, между ними редирект)."""
+    u = link_graph.normalize_url(url or "")
+    if not u:
+        return None
+    parts = urlsplit(u)
+    path = parts.path.rstrip("/") or "/"
+    host = parts.netloc[4:] if parts.netloc.startswith("www.") else parts.netloc
+    return f"{host}{path}" + (f"?{parts.query}" if parts.query else "")
+
+
+def internal_link_list(parser_links: list[dict]) -> list[list]:
+    """Внутренние ссылки страницы для графа выборки: [адрес, зона, nofollow]. Ссылки уже
+    разобраны page_facts — второго разбора и новых запросов нет."""
+    out: list[list] = []
+    seen: set[tuple] = set()
+    for ln in parser_links:
+        if ln.get("kind") != "http" or not ln.get("internal"):
+            continue
+        href = (ln.get("href") or "").split("#")[0]
+        region = ln.get("region") or "body"
+        key = (href, region)
+        if not href or key in seen:
+            continue
+        seen.add(key)
+        out.append([href, region, "nofollow" in (ln.get("rel") or [])])
+        if len(out) >= GRAPH_LINKS_PER_PAGE:
+            break
+    return out
+
+
+TEMPLATE_REGIONS = ("nav", "header", "footer", "aside")
+TEMPLATE_SHARE = 0.8  # цель в меню/подвале у 80 % страниц выборки и больше — это ссылка шаблона
+
+
+def sample_link_graph(pages: list[dict]) -> dict | None:
+    """Сводка перелинковки по проверенным страницам: что линкует шаблон (меню, шапка, подвал),
+    что — основной текст, и откуда страницы выборки получают ссылки друг от друга (link_graph).
+
+    Сирот и глубины клика здесь нет намеренно: по выборке это шум. Страница без входящих из
+    выборки может получать ссылки со страниц, которых в выборке нет, — для этих выводов нужен
+    полный граф (`link_graph.py` по выгрузке краулера)."""
+    ok_pages = [p for p in pages if not p.get("error")
+                and isinstance((p.get("facts") or {}).get("links_internal"), list)]
+    if len(ok_pages) < 2:
+        return None
+    canon: dict[str, str] = {}
+    nodes: list[tuple[str, dict]] = []
+    for p in ok_pages:
+        url = link_graph.normalize_url(p.get("url") or p.get("target") or "")
+        if not url or _norm_key(url) in canon:
+            continue
+        for alias in (url, p.get("target")):
+            k = _norm_key(alias or "")
+            if k:
+                canon.setdefault(k, url)
+        nodes.append((url, p))
+    if len(nodes) < 2:
+        return None
+    n = len(nodes)
+    by_region: Counter = Counter()
+    template_pages: Counter = Counter()   # цель → на скольких страницах она в меню/подвале
+    template_href: dict[str, str] = {}
+    main_targets: set[str] = set()
+    graph = link_graph.Graph(nodes[0][0])
+    for url, _ in nodes:
+        graph.node(url)
+    for url, p in nodes:
+        links = sorted(p["facts"]["links_internal"], key=lambda ln: ln[1] in TEMPLATE_REGIONS)
+        seen_tpl: set[str] = set()
+        for href, region, nofollow in links:
+            key = _norm_key(href)
+            if not key:
+                continue
+            by_region[region if region in TEMPLATE_REGIONS or region in ("main", "body") else "other"] += 1
+            if region in TEMPLATE_REGIONS:
+                if key not in seen_tpl:
+                    seen_tpl.add(key)
+                    template_pages[key] += 1
+                    template_href.setdefault(key, href)
+            else:
+                main_targets.add(key)
+            target = canon.get(key)
+            if target and target != url:
+                graph.add_edge(url, target, "", region, "nofollow" if nofollow else "")
+    need = max(2, -(-n * int(TEMPLATE_SHARE * 100) // 100))  # 80 % вверх до целого
+    template = sorted((k for k, c in template_pages.items() if c >= need),
+                      key=lambda k: (-template_pages[k], k))
+    metrics = graph.compute(nodes[0][0])
+    rep = link_graph.build_report(graph, metrics, pages_given=True)
+    nav_only = rep["only_nav_footer_inlinks"]
+    return {
+        "scope": "выборка", "pages": n,
+        "note": f"по {_qty(n, 'странице', 'страницам', 'страницам')} выборки, не по всему сайту",
+        "links_by_region": dict(by_region),
+        "template_targets": {"count": len(template), "min_pages": need,
+                             "examples": [template_href[k] for k in template[:8]]},
+        "main_text_targets": len(main_targets),
+        "edges_in_sample": rep["edges"],
+        "contextual_inlinks": sum(1 for i in range(n) if metrics["ctx_in"][i] > 0),
+        "only_nav_footer_inlinks": {"count": nav_only["count"], "examples": nav_only["examples"][:5]},
+        "links_capped_pages": sum(1 for _, p in nodes
+                                  if len(p["facts"]["links_internal"]) >= GRAPH_LINKS_PER_PAGE),
+    }
+
+
+class SitePages(list):
+    """Страницы для проверок уровня сайта и посчитанная один раз сводка перелинковки."""
+    graph: dict | None = None
+
+
+def _graph_of(pages):
+    g = getattr(pages, "graph", None)
+    return g if g is not None else sample_link_graph(list(pages))
+
+
+SKIP_GRAPH = "сводка строится по ссылкам между проверенными страницами — нужно две и больше"
+
+
+def _sample(text: str, g: dict) -> str:
+    return f"{g['note'][:1].upper()}{g['note'][1:]}: {text}"
+
+
+@check("links.incoming_by_region", "links", "Откуда входящие внутри выборки", severity="low",
+       source="link_graph по выборке; ориентир редактора", site=True)
+def s_sample_regions(pages):
+    g = _graph_of(pages)
+    if g is None:
+        return skipped(SKIP_GRAPH)
+    nav = g["only_nav_footer_inlinks"]
+    tpl = g["template_targets"]
+    text = (f"шаблон (меню, шапка, подвал) ведёт на {_qty(tpl['count'], 'адрес', 'адреса', 'адресов')} "
+            f"с {tpl['min_pages']} страниц и больше; основной текст — на "
+            f"{_qty(g['main_text_targets'], 'адрес', 'адреса', 'адресов')}. Внутри выборки ссылки "
+            f"из основного текста получают {_qty(g['contextual_inlinks'], 'страница', 'страницы', 'страниц')}, "
+            f"только из шаблона — {nav['count']}")
+    return dict(info(_sample(text, g), value=g["links_by_region"],
+                     evidence=esc("; ".join(nav["examples"]), 300) if nav["count"] else None),
+                sample_scope="выборка")
+
 # ---------------------------------------------------------------------------- сборка отчёта
 
 def run_checks(ctx: Facts, checks: list[Check], arg) -> list[dict]:
@@ -2251,8 +2760,10 @@ def run_checks(ctx: Facts, checks: list[Check], arg) -> list[dict]:
             "source": chk.source, "severity": chk.severity, "in_registry": False,
         }
         row.update(result)
-        if row["verdict"] in (OK, INFO, NODATA):
+        if row["verdict"] in (OK, INFO, NODATA, NOTCHECKED):
             row["severity"] = "info"
+        if row["verdict"] == NOTCHECKED:
+            row["kind_label"] = "—"
         row["verdict_label"] = VERDICT_RU[row["verdict"]]
         rows.append(row)
     return rows
@@ -2378,6 +2889,9 @@ def merge_registry(rows: list[dict], registry: dict, checks: list[Check], *, pag
         if row is not None:
             merged = dict(row, **base)
             merged["id"] = row["id"]
+            if row.get("sample_scope"):
+                # Параметр реестра — про весь сайт, а посчитан по выборке: это видно в названии.
+                merged["title"] = f"{param['title']} ({row['sample_scope']})"
             if merged["verdict"] in (BAD, WARN):
                 # Серьёзность — из реестра, кроме случая, когда скрипт снизил её по контексту
                 # страницы (слайдер, один замер TTFB): раньше реестр молча поднимал её обратно,
@@ -2577,10 +3091,13 @@ def audit_page(source: str, *, fetcher=None, keys: list[str], options: dict) -> 
             bundle["robots"] = {"error": exc.code}
         except Exception as exc:
             bundle["robots"] = {"error": f"{type(exc).__name__}: {exc}"}
+    if options.get("link_graph"):
+        bundle["links_internal"] = internal_link_list(parsed["parser"].links)
     if options.get("sitemap") and fetcher is not None and http_safe.is_url(source):
         try:
             bundle["sitemap"] = adapter_sitemap(page.get("url") or source, fetcher=fetcher,
-                                                cache=options.get("sitemap_cache"))
+                                                cache=options.get("sitemap_cache"),
+                                                scan=options.get("sitemap_scan"))
         except Exception as exc:
             bundle["sitemap"] = {"error": f"{type(exc).__name__}: {exc}"}
     if options.get("ai_files") and fetcher is not None and http_safe.is_url(source):
@@ -2589,10 +3106,35 @@ def audit_page(source: str, *, fetcher=None, keys: list[str], options: dict) -> 
                 bundle[key] = adapter_extra_file(page.get("url") or source, name, fetcher=fetcher)
             except Exception as exc:
                 bundle[key] = {"error": f"{type(exc).__name__}: {exc}"}
+    if options.get("host_variants") and fetcher is not None and http_safe.is_url(source):
+        try:
+            bundle["host_variants"] = adapter_host_variants(page.get("url") or source, fetcher=fetcher)
+        except Exception as exc:
+            bundle["host_variants"] = {"error": f"{type(exc).__name__}: {exc}"}
     ctx = Facts(bundle, keys=keys, options=options)
     rows = imported_rows(bundle) + run_checks(ctx, CHECKS, ctx)
     return {"target": source, "url": url, "status": page.get("fetch", {}).get("status"),
             "title": page.get("title"), "rows": rows, "facts": bundle}
+
+
+def promoted_host_rows(ok_pages: list[dict], registry: dict, taken: set) -> list[dict]:
+    """Строки страниц, которые в реестре — параметры сайта (robots.txt, доступ ботов): файл один
+    на хост, а проверка исторически постраничная. Раньше такие строки шли «вне реестра», а сам
+    параметр в разделе сайта значился «не проверяли: нужен обход» — проверенное не засчитывалось.
+    Берётся строка первой открывшейся страницы (обычно главной). В очередь «чинить первым»
+    копия не идёт: там уже стоит строка страницы."""
+    site_ids = {p["id"] for p in registry.get("params") or [] if p.get("scope") == "site"}
+    out: dict[str, dict] = {}
+    for p in ok_pages:
+        label = p.get("url") or p.get("target")
+        for r in p.get("rows") or []:
+            rid = r.get("id")
+            if rid in site_ids and rid not in taken and rid not in out and not r.get("from_script"):
+                if r.get("verdict") in (NOTCHECKED, NODATA) and len(ok_pages) > 1:
+                    continue  # у следующей страницы может найтись ответ
+                out[rid] = dict(r, from_page=label,
+                                note=r.get("note") or f"посчитано на {esc(label, 120)}")
+    return list(out.values())
 
 
 def build_report(pages: list[dict], *, registry: dict, keys: list[str], options: dict,
@@ -2617,13 +3159,27 @@ def build_report(pages: list[dict], *, registry: dict, keys: list[str], options:
         })
         all_rows.extend(merged)
         per_page.append((label, queue_rows(merged)))
-    site_raw = run_checks(None, SITE_CHECKS, ok_pages) if len(ok_pages) > 1 else []
+    # Проверки уровня сайта: по нескольким страницам — все; по одной — только проверки хоста
+    # (карта, llms.txt), и только если файлы запрашивали: дубли title по одной странице не
+    # «норма», а «не с чем сравнить».
+    site_pages = SitePages(ok_pages)
+    site_pages.graph = sample_link_graph(ok_pages)
+    host_data = any(isinstance((p.get("facts") or {}).get(k), dict)
+                    for p in ok_pages for k in ("sitemap", "llms_txt", "ai_txt", "host_variants"))
+    if len(ok_pages) > 1 or (site_scan is not None and ok_pages):
+        site_raw = run_checks(None, SITE_CHECKS, site_pages)
+    elif host_data:
+        site_raw = run_checks(None, HOST_CHECKS, site_pages)
+    else:
+        site_raw = []
+    site_raw += promoted_host_rows(ok_pages, registry, {r["id"] for r in site_raw})
     site_rows = merge_registry(site_raw, registry, SITE_CHECKS, pages=len(ok_pages), scope="site")
     site = None
     if site_rows:
         site = {"pages": len(ok_pages), "totals": totals_of(site_rows),
                 "groups": group_rows(site_rows, registry),
-                "fix_first": fix_first(site_rows, registry=registry)}
+                "fix_first": fix_first([r for r in site_rows if not r.get("from_page")],
+                                       registry=registry)}
         all_rows.extend(site_rows)
     # Одна находка — одна строка очереди: «title слишком длинный — на 12 страницах» вместо
     # двенадцати одинаковых. Охват (count) входит в порядок наравне с тяжестью.
@@ -2641,19 +3197,24 @@ def build_report(pages: list[dict], *, registry: dict, keys: list[str], options:
     else:
         recurring = []
         fixes = page_reports[0].get("fix_first", []) if page_reports else []
+    # «Нет данных» — запрос был, а ответа на вопрос параметра нет: проверенным это не считается
+    # (аудит покрытия 17.11.2026: 24 параметра из «231 проверенного» были только такими).
     checked_ids = {r.get("registry_id") for r in all_rows
-                   if r.get("in_registry") and r["verdict"] != NOTCHECKED}
+                   if r.get("in_registry") and r["verdict"] not in (NOTCHECKED, NODATA)}
+    no_data_only = {r.get("registry_id") for r in all_rows
+                    if r.get("in_registry") and r["verdict"] == NODATA} - checked_ids
     reg_total = len(registry.get("params") or [])
     reg_rows = [r for r in all_rows if r.get("in_registry")]
     editor_in_registry = {p["id"] for p in registry.get("params") or [] if p.get("editor_guideline")}
     editor_checked = {r["registry_id"] for r in reg_rows
-                      if r.get("editor_guideline") and r["verdict"] != NOTCHECKED}
+                      if r.get("editor_guideline") and r["verdict"] not in (NOTCHECKED, NODATA)}
     coverage = {
         "registry_source": registry.get("source"),
         "registry_version": registry.get("version"),
         "registry_params": reg_total,
         "registry_checked": len(checked_ids),
         "registry_not_checked": max(0, reg_total - len(checked_ids)),
+        "registry_no_data_only": len(no_data_only),
         "not_checked_reasons": dict(Counter(r.get("reason", "не названа") for r in reg_rows
                                             if r["verdict"] == NOTCHECKED)),
         # Ориентиры редактора: сколько реально проверено в этом запуске (разные id, без
@@ -2674,7 +3235,8 @@ def build_report(pages: list[dict], *, registry: dict, keys: list[str], options:
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "inputs": {"keys": keys, "pages": len(pages), "delay_s": options.get("delay"),
                    "robots": bool(options.get("robots")), "sitemap": bool(options.get("sitemap")),
-                   "ai_files": bool(options.get("ai_files")), "lang": options.get("lang")},
+                   "ai_files": bool(options.get("ai_files")),
+                   "host_variants": bool(options.get("host_variants")), "lang": options.get("lang")},
         "requests": {"count": requests_made},
         "coverage": coverage,
         "totals": totals_of(all_rows),
@@ -2686,6 +3248,7 @@ def build_report(pages: list[dict], *, registry: dict, keys: list[str], options:
         "pages": page_reports,
         "site": site,
         "site_scan": site_scan,
+        "sample_links": site_pages.graph,
         "recurring": recurring,
         "fix_first": fixes[:25],
         "registry_rules": list(registry.get("rules") or []),
@@ -2759,6 +3322,9 @@ color:var(--muted);font-size:14px;border-radius:0 8px 8px 0}
 .note.bad{border-left-color:var(--bad);color:var(--fg)}
 .note.verdict{color:var(--fg);font-size:15px}
 ul li{margin:6px 0}
+table.sections{table-layout:auto;max-width:560px}
+table.sections th:nth-child(n),table.sections td:nth-child(n){width:auto}
+table.sections td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
 footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
 @media (max-width:720px){
 body{padding:20px 14px 48px}
@@ -2775,6 +3341,7 @@ tr.info{border-left:3px solid var(--info)}
 tr.no_data,tr.not_checked{border-left:3px solid var(--none)}
 td:first-child{box-shadow:none !important}
 .card{flex:1 1 100%}
+table.sections td:nth-child(n){width:auto}
 }
 @media print{
 body{padding:0;background:#fff;color:#000;font-size:10pt}
@@ -2954,6 +3521,10 @@ def _scan_coverage_text(report: dict) -> str:
     if scan.get("source") == "sitemap":
         out = (f"Проверено {checked_s} из ~{_qty(total, 'адреса', 'адресов', 'адресов')} в карте сайта."
                if total else f"Проверено {checked_s}; адреса взяты из карты сайта.")
+        kids, parsed = _n(scan.get("sitemap_children_total")), _n(scan.get("sitemap_children_parsed"))
+        if kids > parsed:
+            out += (f" Адреса посчитаны по {parsed} дочерним картам из {kids}: остальные "
+                    f"{kids - parsed} не скачивали, в них адресов больше.")
     else:
         out = (f"Проверено {checked_s}: карты сайта нет, адреса собраны со ссылок "
                "главной страницы (ограниченно).")
@@ -2961,6 +3532,45 @@ def _scan_coverage_text(report: dict) -> str:
         out += (f" Пропущено по robots.txt: "
                 f"{_qty(scan['robots_disallowed'], 'адрес', 'адреса', 'адресов')}.")
     return out
+
+
+def sections_lines(sec: dict) -> list[str]:
+    """Разделы одной строкой на раздел — для --brief и сводки в stdout."""
+    lines = [f"{i['section']} — {i['urls']}, в выборке {i['picked']}" for i in sec.get("items") or []]
+    rest = sec.get("rest")
+    if rest:
+        lines.append(f"ещё {rest['sections']} разделов — {rest['urls']} адресов, в выборке {rest['picked']}")
+    return lines
+
+
+def _sections_html(scan: dict) -> str:
+    sec = scan.get("sections") or {}
+    items = sec.get("items") or []
+    if not items:
+        return ""
+    head = (f'<h3 id="sections">Разделы сайта</h3><p class="sub small">По первому сегменту пути, '
+            f'источник — {_h(sec.get("basis"))}: {_qty(_n(sec.get("total")), "раздел", "раздела", "разделов")}, '
+            f'в выборку попали {sec.get("covered", 0)}. Выборка берёт поровну из каждого раздела: '
+            "при двух местах и больше — хаб и карточки, при одном — карточку.</p>")
+    rows = ['<table class="sections"><thead><tr><th>Раздел</th><th>Адресов</th>'
+            "<th>В выборке</th></tr></thead><tbody>"]
+    for i in items:
+        rows.append(f'<tr><td><code>{_h(esc(i["section"], 80))}</code></td>'
+                    f'<td class="num">{i["urls"]}</td><td class="num">{i["picked"]}</td></tr>')
+    rest = sec.get("rest")
+    if rest:
+        rows.append(f'<tr><td>ещё {_qty(rest["sections"], "раздел", "раздела", "разделов")}</td>'
+                    f'<td class="num">{rest["urls"]}</td><td class="num">{rest["picked"]}</td></tr>')
+    rows.append("</tbody></table>")
+    return head + "".join(rows)
+
+
+def _links_summary_text(g: dict) -> str:
+    tpl = g.get("template_targets") or {}
+    return (f"Перелинковка {g['note']}: шаблон (меню, шапка, подвал) ведёт на "
+            f"{_qty(_n(tpl.get('count')), 'адрес', 'адреса', 'адресов')} с {tpl.get('min_pages')} "
+            f"страниц и больше, основной текст — на {_qty(_n(g.get('main_text_targets')), 'адрес', 'адреса', 'адресов')}. "
+            "Сирот и глубину клика по выборке не считаем: для них нужен полный граф сайта.")
 
 
 def _recurring_html(items: list[dict], total: int) -> str:
@@ -3034,6 +3644,7 @@ def render_html(report: dict) -> str:
         parts.append(f'<p class="sub small">{_h(_scan_coverage_text(report))}</p>')
         if scan.get("warning"):
             parts.append(f'<div class="note">{_h(scan["warning"])}</div>')
+        parts.append(_sections_html(scan))
     blocked = any(p.get("blocking") for p in report["pages"] if not p.get("error"))
     parts.append(f'<div class="note verdict{" bad" if blocked else ""}"><b>Вердикт.</b> '
                  + _h(report.get("verdict") or verdict_text(report)) + "</div>")
@@ -3096,6 +3707,8 @@ def render_html(report: dict) -> str:
         else:
             parts.append(f'<p class="sub small">Проверено страниц: {site["pages"]}. '
                          "Вывод «на всём сайте такого нет» на этом числе не делается.</p>")
+            if report.get("sample_links"):
+                parts.append(f'<p class="sub small">{_h(_links_summary_text(report["sample_links"]))}</p>')
             parts.append(_groups_html(site["groups"], prefix="site-"))
     reg = cov.get("registry_source")
     parts.append("<footer>papa-seo audit " + _h(report["version"]) + " · реестр: "
@@ -3222,7 +3835,8 @@ def brief_report(report: dict) -> dict:
                 evidence.setdefault(r["id"], r)
     site_rows = [r for g in (report.get("site") or {}).get("groups") or [] for r in g.get("params") or []]
     found += [dict(queue_item(r), count=_n((report.get("site") or {}).get("pages")), pages=[], scope="site")
-              for r in queue_rows(site_rows)] if (report.get("site") or {}).get("pages", 0) > 1 else []
+              for r in queue_rows(site_rows) if not r.get("from_page")] \
+        if (report.get("site") or {}).get("pages", 0) > 1 else []
     for r in site_rows:
         evidence.setdefault(r["id"], r)
     found.sort(key=queue_key)
@@ -3276,8 +3890,36 @@ def brief_report(report: dict) -> dict:
                               "standards": sum(1 for i in must if not is_engine_requirement(i))}}
     if report.get("site_scan"):
         out["site_scan"] = _scan_coverage_text(report)
+        if (report["site_scan"].get("sections") or {}).get("items"):
+            out["site_sections"] = sections_lines(report["site_scan"]["sections"])
+    if report.get("sample_links"):
+        g = report["sample_links"]
+        out["sample_links"] = {"note": g["note"], "links_by_region": g["links_by_region"],
+                               "template_targets": g["template_targets"]["count"],
+                               "template_examples": g["template_targets"]["examples"][:3],
+                               "main_text_targets": g["main_text_targets"]}
+    host = _brief_host(report)
+    if host:
+        out["host"] = host
+    if _n(cov.get("registry_no_data_only")):
+        out["registry"]["no_data_only"] = cov["registry_no_data_only"]
     if not out["pages_failed"]:
         del out["pages_failed"]
+    return out
+
+
+HOST_ROW_IDS = ("access.sitemap_found", "access.https_redirect", "access.host_duplicates",
+                "ai.llms_txt", "ai.ai_txt")
+
+
+def _brief_host(report: dict) -> dict:
+    """Файлы и варианты хоста одной строкой на проверку: агенту не нужно искать их в таблицах."""
+    out = {}
+    for g in (report.get("site") or {}).get("groups") or []:
+        for r in (g.get("params") or []) + (g.get("not_checked") or []):
+            if r.get("registry_id") in HOST_ROW_IDS or r.get("id") in HOST_ROW_IDS:
+                out[r.get("registry_id") or r["id"]] = (
+                    f"{r.get('verdict_label')}: {_short(r.get('observation'), 200) or ''}".rstrip(": "))
     return out
 
 
@@ -3302,6 +3944,10 @@ def text_summary(report: dict) -> str:
         lines.append("вердикт: " + report["verdict"])
     if report.get("site_scan"):
         lines.append(_scan_coverage_text(report))
+        sec = report["site_scan"].get("sections") or {}
+        if sec.get("items"):
+            lines.append(f"разделов: {sec.get('total')}, в выборке {sec.get('covered')}; крупные: "
+                         + "; ".join(sections_lines(sec)[:4]))
     lines.append(f"проблем {t[BAD]} · предупреждений {t[WARN]} · норма {t[OK]} · "
                  f"нет данных {t[NODATA]} · не проверяли {t[NOTCHECKED]}")
     if cov["registry_params"]:
@@ -3398,13 +4044,33 @@ def _allocate(slots: int, sizes: list[int]) -> list[int]:
 
 
 def _spread(items: list, k: int) -> list:
-    """k элементов, равномерно по списку (не первые подряд)."""
+    """k элементов, равномерно по списку, из середины своих долей: не первые подряд и не
+    первый вообще — в карте раздела первым обычно стоит хаб, и при одном месте на раздел
+    выборка состояла из одних хабов (аудит покрытия 17.11.2026: 9 из 10)."""
     if k <= 0:
         return []
     if k >= len(items):
         return list(items)
     step = len(items) / k
-    return [items[int(i * step)] for i in range(k)]
+    return [items[int((i + 0.5) * step)] for i in range(k)]
+
+
+def _path_depth(url: str) -> int:
+    return len([s for s in (urlsplit(url).path or "/").split("/") if s])
+
+
+def _pick_in_section(bucket: list[str], k: int) -> list[str]:
+    """k адресов раздела: при двух местах и больше — хаб (самый короткий путь) и карточки из
+    середины списка; при одном — карточка. Хабы и так видны с главной, шаблон карточки — нет."""
+    if k >= len(bucket):
+        return list(bucket)
+    depths = [_path_depth(u) for u in bucket]
+    top = min(depths)
+    if k >= 2:
+        hub_i = min(range(len(bucket)), key=lambda i: (depths[i], len(bucket[i]), i))
+        return [bucket[hub_i]] + _spread(bucket[:hub_i] + bucket[hub_i + 1:], k - 1)
+    cards = [u for u, d in zip(bucket, depths) if d > top]
+    return _spread(cards or bucket, k)
 
 
 def children_budget(limit: int) -> int:
@@ -3438,7 +4104,7 @@ def sample_site_urls(urls: list[str], limit: int, *, home: str) -> list[str]:
         segs = sorted(buckets, key=lambda s: (-len(buckets[s]), s))
         alloc = _allocate(slots, [len(buckets[s]) for s in segs])
         for seg, k in zip(segs, alloc):
-            for u in _spread(buckets[seg], k):
+            for u in _pick_in_section(buckets[seg], k):
                 add(u)
     return picked[:limit]
 
@@ -3471,6 +4137,7 @@ def collect_sitemap_urls(sitemap_urls: list[str], fetcher, *, origin: str,
     tried: set[str] = set()
     queue = list(dict.fromkeys(sitemap_urls))
     children_used = 0
+    children_total = 0
     found_any = False
     more_children = 0
     while queue:
@@ -3483,7 +4150,7 @@ def collect_sitemap_urls(sitemap_urls: list[str], fetcher, *, origin: str,
             if cache is not None:
                 cache[sm] = (parsed, _meta)
         except (sitemap_check.SitemapError, http_safe.SafeHttpError) as exc:
-            notes.append({"sitemap": sm, "error": getattr(exc, "code", type(exc).__name__)})
+            notes.append(_sitemap_error(sm, exc))
             continue
         except Exception as exc:  # карта битая не должна ронять обход
             notes.append({"sitemap": sm, "error": f"{type(exc).__name__}"})
@@ -3494,6 +4161,7 @@ def collect_sitemap_urls(sitemap_urls: list[str], fetcher, *, origin: str,
                     if loc and http_safe.is_url(loc) and sitemap_check._same_site(loc, origin)
                     and loc not in tried]
             take = _spread(list(dict.fromkeys(locs)), max(0, child_budget - children_used))
+            children_total += len(set(locs))
             queue.extend(take)
             children_used += len(take)
             more_children += len(set(locs)) - len(take)
@@ -3509,7 +4177,8 @@ def collect_sitemap_urls(sitemap_urls: list[str], fetcher, *, origin: str,
         notes.append({"skipped_children": more_children,
                       "note": f"дочерних карт в индексе больше, развёрнуто {children_used}"})
     return {"urls": urls, "total": total, "notes": notes, "found": found_any,
-            "children_used": children_used}
+            "children_used": children_used, "children_total": children_total,
+            "maps_parsed": len(tried) - sum(1 for n in notes if n.get("error"))}
 
 
 def homepage_links(base_url: str, fetcher, *, origin: str, allow_local: bool,
@@ -3580,6 +4249,8 @@ def collect_site(base_url: str, *, fetcher, limit: int, options: dict) -> tuple[
                                      cache=options.setdefault("sitemap_cache", {}))
     meta["sitemap_urls"] = sm_urls
     meta["notes"].extend(collected["notes"])
+    meta["sitemap_children_total"] = collected["children_total"]
+    meta["sitemap_children_parsed"] = collected["children_used"]
     candidates = collected["urls"]
 
     if collected["found"] and candidates:
@@ -3609,7 +4280,30 @@ def collect_site(base_url: str, *, fetcher, limit: int, options: dict) -> tuple[
     meta["candidates"] = len(candidates)
     sources = sample_site_urls(candidates, limit, home=home)
     meta["picked"] = len(sources)
+    meta["sections"] = site_sections(candidates, sources, source=meta["source"])
     return sources, meta
+
+
+def _section_label(seg: str) -> str:
+    return f"/{seg}/" if seg else "/"
+
+
+def site_sections(urls: list[str], picked: list[str], *, source: str | None,
+                  shown: int = SITE_SECTIONS_SHOWN) -> dict:
+    """Разделы сайта по первым сегментам пути — тем же, по которым строится выборка: сколько
+    адресов в разделе и сколько из них проверено. Без запросов: адреса уже собраны."""
+    counts = Counter(_first_segment(u) for u in dict.fromkeys(urls))
+    in_sample = Counter(_first_segment(u) for u in picked)
+    order = sorted(counts, key=lambda s: (-counts[s], s))
+    items = [{"section": _section_label(s), "urls": counts[s], "picked": in_sample.get(s, 0)}
+             for s in order]
+    rest = items[shown:]
+    return {"basis": "карта сайта" if source == "sitemap" else "ссылки с главной",
+            "total": len(items), "urls": sum(counts.values()),
+            "covered": sum(1 for i in items if i["picked"]),
+            "items": items[:shown],
+            "rest": {"sections": len(rest), "urls": sum(i["urls"] for i in rest),
+                     "picked": sum(i["picked"] for i in rest)} if rest else None}
 
 
 def aggregate_findings(per_page: list[tuple[str, list[dict]]], *,
@@ -3683,11 +4377,15 @@ def read_pages_file(path: str) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     def body() -> int:
-        p = http_safe.JsonArgumentParser(prog="audit.py",
-                                         description="Проверка страницы или списка страниц по реестру параметров")
+        p = http_safe.JsonArgumentParser(prog="audit.py", formatter_class=http_safe.RuHelpFormatter,
+                                         description="Проверка страницы, списка страниц или сайта "
+                                                     "по реестру параметров")
+        http_safe.russify_parser(p)
         p.add_argument("source", nargs="?", help="URL или HTML-файл")
         p.add_argument("--pages", help=f"файл со списком адресов, до {MAX_PAGES}")
-        p.add_argument("--site", help="обойти весь сайт: карта сайта → представительная выборка")
+        p.add_argument("--site", help="проверить сайт: карта сайта → представительная выборка; "
+                                      "плюс разбор карты, llms.txt и ai.txt, разделы и сводка "
+                                      "перелинковки по выборке")
         p.add_argument("--limit", type=int, default=SITE_SAMPLE_DEFAULT,
                        help=f"размер выборки для --site (по умолчанию {SITE_SAMPLE_DEFAULT}, "
                             f"максимум {SITE_SAMPLE_MAX})")
@@ -3699,17 +4397,30 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--force", action="store_true",
                        help="перезаписать существующий --out/--json, даже если его писал не papa-seo")
         p.add_argument("--registry", help="путь к registry.json (по умолчанию references/registry.json)")
-        p.add_argument("--lang", default="auto", choices=("auto", "ru", "en"))
+        p.add_argument("--lang", default="auto", choices=("auto", "ru", "en"),
+                       help="язык текста для метрик (по умолчанию определяется сам)")
         p.add_argument("--no-robots", dest="robots", action="store_false",
                        help="не запрашивать robots.txt (на один запрос меньше)")
-        p.add_argument("--sitemap", action="store_true", help="запросить /sitemap.xml")
-        p.add_argument("--ai-files", action="store_true", help="запросить llms.txt и ai.txt")
+        p.add_argument("--sitemap", dest="sitemap", action="store_const", const=True, default=None,
+                       help="разобрать карту сайта (+1 запрос /sitemap.xml); в --site включено: "
+                            "разбираются карты, уже скачанные для выборки, без новых запросов")
+        p.add_argument("--no-sitemap", dest="sitemap", action="store_const", const=False,
+                       help="не разбирать карту сайта в отчёте (выборку --site она всё равно строит)")
+        p.add_argument("--ai-files", dest="ai_files", action="store_const", const=True, default=None,
+                       help="запросить llms.txt и ai.txt (+2 запроса); в --site включено")
+        p.add_argument("--no-ai-files", dest="ai_files", action="store_const", const=False,
+                       help="не запрашивать llms.txt и ai.txt (в --site на два запроса меньше)")
+        p.add_argument("--host-variants", dest="host_variants", action="store_const", const=True,
+                       default=None, help="проверить http:// и www-вариант главной (+2 запроса); "
+                                          "в --site включено")
+        p.add_argument("--no-host-variants", dest="host_variants", action="store_const", const=False,
+                       help="не проверять http:// и www-вариант (в --site на два запроса меньше)")
         p.add_argument("--full", action="store_true", help="не ужимать списки и вложить сырые факты в JSON")
         p.add_argument("--quiet", action="store_true", help="без сводки в stdout")
         p.add_argument("--brief", action="store_true",
                        help="в stdout — только находки в порядке «чинить первым» (JSON на несколько КБ)")
         p.add_argument("--list-checks", action="store_true", help="показать каталог проверок и выйти")
-        http_safe.add_pace_args(p)
+        http_safe.add_pace_args(p, ru=True)
         args = p.parse_args(argv)
 
         if args.list_checks:
@@ -3738,8 +4449,13 @@ def main(argv: list[str] | None = None) -> int:
             raise http_safe.CliError(
                 f"реестра нет по этому пути: {args.registry}", "bad_registry_path")
         registry = load_registry(args.registry)  # до сети: опечатка не должна стоить обхода
+        # Карта и llms.txt: в --site по умолчанию да, для одной страницы и --pages — по флагу.
+        site_mode = bool(args.site)
         options = {"base_url": args.base_url, "full": args.full, "lang": args.lang,
-                   "robots": args.robots, "sitemap": args.sitemap, "ai_files": args.ai_files,
+                   "robots": args.robots,
+                   "sitemap": site_mode if args.sitemap is None else args.sitemap,
+                   "ai_files": site_mode if args.ai_files is None else args.ai_files,
+                   "host_variants": site_mode if args.host_variants is None else args.host_variants,
                    "delay": delay, "robots_cache": {}}
         site_scan = None
         if args.site:
@@ -3748,6 +4464,7 @@ def main(argv: list[str] | None = None) -> int:
             limit = check_site_limit(args.limit)
             fetcher = make_fetcher(delay=delay, state_dir=state_dir)
             sources, site_scan = collect_site(args.site, fetcher=fetcher, limit=limit, options=options)
+            options["sitemap_scan"] = site_scan  # карты уже скачаны: разбирать их, а не качать снова
             if not sources:
                 raise http_safe.CliError("на сайте не нашлось адресов для проверки "
                                          "(ни карты сайта, ни ссылок с главной)", "no_urls")
@@ -3756,6 +4473,10 @@ def main(argv: list[str] | None = None) -> int:
             need_net = any(http_safe.is_url(s) for s in sources)
             fetcher = make_fetcher(delay=delay, state_dir=state_dir) if need_net else None
 
+        # В отчёт — то, что просили, а не то, что осталось после первой страницы (раньше в JSON
+        # писалось sitemap=false даже с флагом).
+        requested = dict(options)
+        options["link_graph"] = len(sources) > 1
         pages = []
         for src in sources:
             try:
@@ -3776,10 +4497,12 @@ def main(argv: list[str] | None = None) -> int:
                     raise
                 pages.append({"target": src, "error": f"{type(exc).__name__}: {exc}"[:300],
                               "code": "internal_error", "facts": {}})
-            # карту сайта и llms.txt хватит запросить один раз: они общие для хоста
-            options = dict(options, sitemap=False, ai_files=False)
+            # Карту сайта и llms.txt хватит запросить один раз: они общие для хоста. Если первая
+            # страница не открылась, файлы запросит следующая.
+            if pages and not pages[-1].get("error"):
+                options = dict(options, sitemap=False, ai_files=False, host_variants=False)
 
-        report = build_report(pages, registry=registry, keys=keys, options=options,
+        report = build_report(pages, registry=registry, keys=keys, options=requested,
                               requests_made=fetcher.requests_made if fetcher else 0,
                               site_scan=site_scan)
         if args.out:

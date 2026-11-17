@@ -684,7 +684,10 @@ class Fetcher:
             os.close(fd)  # releases the flock
 
     def fetch(self, url: str, *, method: str = "GET", headers: dict | None = None,
-              max_bytes: int | None = None, allow_local: bool | None = None) -> Response:
+              max_bytes: int | None = None, allow_local: bool | None = None,
+              follow_redirects: bool = True) -> Response:
+        """follow_redirects=False — вернуть сам ответ 3xx (с заголовком location), не идя
+        дальше: так проверяется, куда ведёт http:// или www-вариант, одним запросом."""
         method = method.upper()
         if method not in ("GET", "HEAD"):
             raise SafeHttpError("method_not_allowed", "only GET and HEAD are allowed")
@@ -717,7 +720,7 @@ class Fetcher:
             if status in REDIRECT_CODES and location:
                 step["location"] = location
             chain.append(step)
-            if status in REDIRECT_CODES and location:
+            if status in REDIRECT_CODES and location and follow_redirects:
                 if hop == self.max_redirects:
                     raise SafeHttpError("too_many_redirects", f"more than {self.max_redirects} redirects",
                                         url=url, chain=chain)
@@ -1040,10 +1043,30 @@ def check_state_dir(path: str | None) -> str | None:
     return os.path.abspath(path)
 
 
-def add_pace_args(p: argparse.ArgumentParser, *, delay: bool = True):
+def add_pace_args(p: argparse.ArgumentParser, *, delay: bool = True, ru: bool = False):
     if delay:
-        p.add_argument("--delay", type=float, default=DEFAULT_DELAY, help="pause between requests, >= 2 s")
-    p.add_argument("--state-dir", help="where the per-host pause timestamp lives (default: system temp)")
+        p.add_argument("--delay", type=float, default=DEFAULT_DELAY,
+                       help="пауза между запросами, не меньше 2 с" if ru
+                       else "pause between requests, >= 2 s")
+    p.add_argument("--state-dir",
+                   help="где хранить отметку времени паузы для хоста (по умолчанию — системный temp)"
+                   if ru else "where the per-host pause timestamp lives (default: system temp)")
+
+
+class RuHelpFormatter(argparse.HelpFormatter):
+    """--help по-русски: подпись «использование:» вместо argparse-овской «usage:»."""
+
+    def add_usage(self, usage, actions, groups, prefix=None):
+        super().add_usage(usage, actions, groups, prefix if prefix is not None else "использование: ")
+
+
+def russify_parser(p: argparse.ArgumentParser) -> None:
+    """Заголовки разделов и строка -h по-русски. argparse их не локализует без gettext-каталога."""
+    p._positionals.title = "аргументы"
+    p._optionals.title = "параметры"
+    for action in p._actions:
+        if isinstance(action, argparse._HelpAction):
+            action.help = "показать эту справку и выйти"
 
 
 def check_delay(value: float) -> float:

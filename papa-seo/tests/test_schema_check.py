@@ -339,6 +339,25 @@ class TypeRuleTest(unittest.TestCase):
         r = check_jsonld(self.ctx({"@type": "CafeOrCoffeeShop", "name": "n"}))
         self.assertEqual(status_of(r, "markup.req_localbusiness"), "fail")
 
+    def test_service_subtypes_named_explicitly(self):
+        """0.2.4: подтипы без «говорящего» окончания (Dentist, Plumber…) раньше выпадали из
+        проверки name/address — Dentist без адреса проходил без замечаний."""
+        r = check_jsonld(self.ctx({"@type": "Dentist", "name": "Клиника"}))
+        row = rows_for(r, "markup.req_localbusiness")[0]
+        self.assertEqual(row["status"], "fail")
+        self.assertIn("address", json.dumps(row, ensure_ascii=False))
+        for t in ("Physician", "Attorney", "Notary", "Plumber", "Electrician", "Locksmith",
+                  "Optician", "AutoRepair", "VeterinaryCare", "ChildCare"):
+            with self.subTest(type=t):
+                self.assertTrue(sc.is_local_business(t))
+                bad = check_jsonld(self.ctx({"@type": t, "name": "n"}))
+                self.assertEqual(status_of(bad, "markup.req_localbusiness"), "fail")
+                good = check_jsonld(self.ctx({"@type": t, "name": "n", "address": "Москва, ул. Ленина, 1"}))
+                self.assertIn(status_of(good, "markup.req_localbusiness"), ("pass", "info"),
+                              "обязательные есть, недостающие рекомендуемые — к сведению")
+        self.assertFalse(sc.is_local_business("Service"))
+        self.assertFalse(sc.is_local_business("Person"))
+
     def test_qapage_question_needs_an_answer_text(self):
         r = check_jsonld(self.ctx({"@type": "QAPage", "mainEntity": {
             "@type": "Question", "name": "q", "answerCount": 1,
@@ -475,6 +494,11 @@ class YandexTest(unittest.TestCase):
 
     def test_localbusiness_subtypes_count_as_supported(self):
         r = check_jsonld({"@context": "https://schema.org", "@type": "CafeOrCoffeeShop",
+                          "name": "n", "address": "a"})
+        self.assertEqual(status_of(r, "markup.yandex_supported"), "pass")
+
+    def test_dentist_is_supported_by_yandex(self):
+        r = check_jsonld({"@context": "https://schema.org", "@type": "Dentist",
                           "name": "n", "address": "a"})
         self.assertEqual(status_of(r, "markup.yandex_supported"), "pass")
 

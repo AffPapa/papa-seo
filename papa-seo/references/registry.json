@@ -59,9 +59,9 @@
   "deterministic": 389,
   "non_deterministic": 26,
   "by_status": {
-   "есть": 250,
-   "частично": 50,
-   "нет": 115
+   "есть": 254,
+   "частично": 49,
+   "нет": 112
   },
   "by_group": {
    "access": 72,
@@ -1346,6 +1346,7 @@
    "source_kind": "google",
    "status": "частично",
    "covered_by": [
+    "audit.adapter_host_variants",
     "http_safe.fetch"
    ]
   },
@@ -1365,8 +1366,9 @@
    "engine": "both",
    "source": "Google Search Essentials → Technical requirements (developers.google.com/search/docs/essentials/technical)",
    "source_kind": "google",
-   "status": "частично",
+   "status": "есть",
    "covered_by": [
+    "audit.adapter_host_variants",
     "http_safe.fetch"
    ]
   },
@@ -7662,8 +7664,10 @@
    "engine": "ai",
    "source": "llmstxt.org — предложение, не стандарт; Google Поиск файл игнорирует (facts-2026 §10)",
    "source_kind": "llmstxt",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "audit.adapter_extra_file"
+   ]
   },
   {
    "id": "ai.llms_txt_format",
@@ -7681,8 +7685,10 @@
    "engine": "ai",
    "source": "llmstxt.org — предложение, не стандарт; Google Поиск файл игнорирует (facts-2026 §10)",
    "source_kind": "llmstxt",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "audit.llms_outline"
+   ]
   },
   {
    "id": "ai.llms_txt_links_alive",
@@ -7740,8 +7746,10 @@
    "engine": "ai",
    "source": "ориентир редактора",
    "source_kind": "editor",
-   "status": "нет",
-   "covered_by": []
+   "status": "есть",
+   "covered_by": [
+    "audit.adapter_extra_file"
+   ]
   },
   {
    "id": "ai.text_addressed_to_model",

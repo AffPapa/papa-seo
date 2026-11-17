@@ -12,7 +12,7 @@ It isn't a hosted SEO tool. The skill runs inside your coding agent, reads the l
 - For AI search, checks whether a page can show up in ChatGPT search, Perplexity, Google AI Overviews and Yandex Alice AI answers, which bots robots.txt lets in and whether a WAF blocks them. llms.txt is treated as optional.
 - Writes content briefs and sourced articles, refreshes old pages, edits and de-AIs Russian and English text. `factdiff.py` shows which numbers, dates and links an edit dropped.
 - Reads Google Search Console, Yandex Webmaster and GA4 exports: period comparison, traffic drops, striking-distance queries.
-- Free and MIT-licensed. No paid APIs; the scripts use only the Python standard library. It audits a whole site only when asked (`--site`): a sample of ~25 URLs from the sitemap, fetched one by one with a pause of at least 2 seconds.
+- Free and MIT-licensed. No paid APIs; the scripts use only the Python standard library. It audits a whole site only when asked (`--site`): a sample of ~25 URLs from the sitemap, fetched one by one with a pause of at least 2 seconds, plus the sitemap, llms.txt and http/www redirects.
 
 The skill's own instructions are in Russian, with standard English terms. It works on English sites and texts too, but the Yandex track and the Russian style layer assume a Russian-language market.
 
@@ -184,9 +184,9 @@ npx skills add finds papa-seo/SKILL.md in the repository (checked 2026-10-26), p
 <summary>Download</summary>
 
 - [Download zip (main)](https://github.com/AffPapa/papa-seo/archive/refs/heads/main.zip)
-- [Release v0.2.3](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.3)
+- [Release v0.2.4](https://github.com/AffPapa/papa-seo/releases/tag/v0.2.4)
 
-main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.2.3 is papa-seo-0.2.3.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
+main.zip is the current main branch, always up to date; inside is papa-seo-main/, the skill is at papa-seo-main/papa-seo/. Release v0.2.4 is papa-seo-0.2.4.zip: the papa-seo/ folder (skill, scripts, tests), README in two languages, QUICKSTART, CHANGELOG, SECURITY, LICENSE, THIRD_PARTY_NOTICES with license texts, docs/RESEARCH and evals/; SHA-256 is in the release notes. We keep no mirror on affpapa.org so it never drifts from GitHub.
 
 </details>
 ### Project context
@@ -234,6 +234,16 @@ python3 scripts/audit.py --site https://example.com --out report.html
 
 The skill finds the sitemap on its own (`sitemap.xml` at the root or from `robots.txt`, sitemap-index supported), takes a **representative sample of ~25 URLs** from it (the homepage always, then evenly across path types — sections, a couple of listing cards, a couple of articles; not consecutive). It fetches them one by one with a pause of at least 2 seconds, respects `robots.txt` (disallowed URLs are never requested) and counts every request. `--limit N` changes the sample size (at most 100; above 30 it warns about load). No sitemap — it gathers key pages from the homepage's links.
 
+Besides the pages, `--site` by default looks at what exists once per site:
+
+- the sitemap: every file already downloaded for the sample (index and expanded children) — XML, limits, hosts, http://, duplicates, lastmod. No extra requests;
+- `llms.txt` (present, starts with an H1) and `ai.txt`. A 200 answer with an HTML page doesn't count as the file. A missing file is not a defect;
+- where `http://` and the `www`/non-`www` variant lead: a permanent 301 to the main address is expected;
+- site sections by the first path segment: how many URLs each holds and how many made it into the sample. A section with one slot gets a detail page, two or more get the hub plus detail pages;
+- internal linking inside the sample: what the template links (menu, header, footer) and what the main text links. It's a summary over N pages, not the site. Orphans and click depth are not computed from a sample: they need the full graph (`link_graph.py` on a crawler export).
+
+The cost is 4 requests per site on top of the sample: `--limit 10` took 22 requests and ~47 s, against 18 and ~35 s in 0.2.3. Turn off with `--no-ai-files`, `--no-host-variants` (2 requests each), `--no-sitemap` (saves no requests, drops the sitemap rows). For a single page all of this is off; `--sitemap`, `--ai-files`, `--host-variants` turn it on.
+
 #### One prompt for your agent
 
 Copy it, drop in your address, hand it to an agent that has papa-seo (Claude Code, Codex, Cursor, etc.):
@@ -244,7 +254,7 @@ The script finds the sitemap, takes the sample and keeps the pause on its own; t
 
 ### How to read the report
 
-The cards at the top: problems, warnings, fine, no data, not checked, plus how many of the 415 parameters were checked. With `--site` a coverage line follows: "checked N pages of ~M URLs in the sitemap" and how many URLs robots.txt kept out. (The report itself is in Russian; labels are quoted here in translation.)
+The cards at the top: problems, warnings, fine, no data, not checked, plus how many of the 415 parameters were checked. With `--site` a coverage line follows: "checked N pages of ~M URLs in the sitemap", how many child sitemaps were not downloaded (then the real count is higher) and how many URLs robots.txt kept out; below it, the sections table. "No data" doesn't count as checked: a request was made, but it didn't answer the parameter's question. (The report itself is in Russian; labels are quoted here in translation.)
 
 Then a one- or two-sentence verdict: whether anything blocks indexing (noindex, a non-200 response, a search bot blocked in robots.txt) and how many search engine requirements are unmet. A collapsed "How to read this report" note sits right under it.
 
@@ -287,6 +297,7 @@ Ask in plain words ("check this page", "write a brief", "refresh this article") 
 | `yandex` | Yandex SEO: YandexAdditional, Clean-param, Webmaster, commercial signals, site moves |
 | `geo` | AI search (GEO/AEO): eligibility for ChatGPT, Perplexity, AI Overviews and Alice AI answers, AI bots in robots.txt, WAF, llms.txt |
 | `plan` | keyword research from your data: intents, clusters, query-to-page map, cannibalization |
+| `newsite` | no site yet: six questions, keywords, sections and URLs, internal-link plan, meta templates, markup, draft robots/sitemap/llms.txt, launch checklist |
 | `brief` | content brief: intent, angle, outline, sourced facts, questions for an expert |
 | `write` | article or page copy from a brief, then a fact check and a de-AI pass |
 | `refresh` | update an old page using a Search Console export and the current SERP |

@@ -73,7 +73,7 @@ class Graph:
         self.dst = array("I")
         self.region = array("B")
         self.follow = array("B")
-        self._pairs: set[int] = set()
+        self._pairs: dict[int, int] = {}  # пара from→to → номер ребра
         self.anchors: dict[int, Counter] = {}
         self.stats = Counter()
 
@@ -108,15 +108,21 @@ class Graph:
             return
         s, d = self.node(a), self.node(b)
         key = (s << 32) | d
+        reg = (region or "body").strip().lower()
+        code = REGION_CODE.get(reg, REGION_CODE["other"])
         if key in self._pairs:
             self.stats["duplicate_edges"] += 1
+            # Та же ссылка в меню и в тексте: контекстная зона важнее шаблонной. Раньше
+            # побеждала первая строка, и ссылка из текста, совпавшая с меню, терялась.
+            i = self._pairs[key]
+            if code in CONTEXTUAL and self.region[i] not in CONTEXTUAL:
+                self.region[i] = code
             self._anchor(d, anchor)
             return
-        self._pairs.add(key)
+        self._pairs[key] = len(self.src)
         self.src.append(s)
         self.dst.append(d)
-        reg = (region or "body").strip().lower()
-        self.region.append(REGION_CODE.get(reg, REGION_CODE["other"]))
+        self.region.append(code)
         self.follow.append(0 if "nofollow" in (rel or "").lower() else 1)
         if not (anchor or "").strip():
             self.stats["empty_anchor"] += 1

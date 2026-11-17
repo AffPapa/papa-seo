@@ -251,7 +251,8 @@ class TestPageAudit(unittest.TestCase):
         page = audit_file(BASIC)
         rows = rows_by_id(page)
         self.assertEqual(rows["access.robots_googlebot"]["verdict"], au.NODATA)
-        self.assertEqual(rows["ai.llms_txt"]["verdict"], au.NODATA)
+        # llms.txt — файл хоста: с 0.2.4 его строка уровня сайта, на странице её нет
+        self.assertNotIn("ai.llms_txt", rows)
         self.assertEqual(rows["speed.compression"]["verdict"], au.NODATA)
 
     def test_keys_by_zone_use_text_metrics(self):
@@ -1368,10 +1369,13 @@ class TestSiteCli(unittest.TestCase):
             rep = self._run(srv, "--limit", "5")
             paths = [r["path"] for r in srv.requests]
         # robots + индекс + две дочерние карты (по две страницы выборки на карту) + 5 страниц
+        # + llms.txt и ai.txt (в --site по умолчанию). http:// и www у 127.0.0.1 не бывает.
         self.assertEqual(paths.count("/robots.txt"), 1)
         self.assertEqual(paths.count("/sitemap.xml"), 1)
+        self.assertEqual(paths.count("/llms.txt"), 1)
+        self.assertEqual(paths.count("/ai.txt"), 1)
         self.assertEqual(sum(1 for p in paths if p.startswith("/sm-")), au.children_budget(5))
-        self.assertEqual(len(paths), 1 + 1 + au.children_budget(5) + 5)
+        self.assertEqual(len(paths), 1 + 1 + au.children_budget(5) + 5 + 2)
         self.assertEqual(rep["requests"]["count"], len(paths))
         pages = [p for p in paths if not p.endswith((".txt", ".xml"))]
         self.assertEqual(len(pages), len(set(pages)), "ни одна страница не скачана дважды")
@@ -1545,3 +1549,372 @@ class CanonicalDuplicateTest(unittest.TestCase):
         r = self._run(["https://example.ru/a/", "https://example.ru/b/"])
         self.assertEqual(r["verdict"], "problem")
         self.assertEqual(r["severity"], "high")
+
+
+# ---------------------------------------------------------------------------- 0.2.4: --site по умолчанию
+
+def _urlset(locs, lastmod=None):
+    lm = f"<lastmod>{lastmod}</lastmod>" if lastmod else ""
+    return ('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + "".join(f"<url><loc>{u}</loc>{lm}</url>" for u in locs) + "</urlset>")
+
+
+def _site_page(links=()):
+    nav = "".join(f'<a href="{h}">n</a>' for h in links)
+    return Route(200, ('<html><head><title>T</title></head><body><nav><a href="/">Главная</a>'
+                       '<a href="/blog/">Блог</a></nav><main><h1>Страница</h1><p>Текст страницы '
+                       f'для проверки.</p>{nav}</main><footer><a href="/about">О нас</a></footer>'
+                       "</body></html>"), {"Content-Type": "text/html; charset=utf-8"})
+
+
+class TestSiteDefaults(unittest.TestCase):
+    """--site по умолчанию разбирает карту (без новых запросов), запрашивает llms.txt и ai.txt
+    один раз на хост; одиночная страница лишних запросов не делает."""
+
+    def setUp(self):
+        self.saved = au.make_fetcher
+        au.make_fetcher = lambda *, delay, state_dir: au.http_safe.Fetcher(
+            delay=delay, allow_local=True, sleep=lambda s: None, shared_pace=False)
+
+    def tearDown(self):
+        au.make_fetcher = self.saved
+
+    def _routes(self, base, *, llms=None, dup=False):
+        blog = [f"{base}/blog/"] + [f"{base}/blog/post-{i}" for i in range(6)]
+        shop = [f"{base}/shop/item-{i}" for i in range(3)]
+        locs = [base + "/"] + blog + shop + ([blog[1]] if dup else [])
+        routes = {"/robots.txt": Route(200, f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n",
+                                       {"Content-Type": "text/plain"}),
+                  "/sitemap.xml": Route(200, _urlset(locs, "2026-11-01"),
+                                        {"Content-Type": "application/xml"})}
+        for u in dict.fromkeys(locs):
+            routes[urlsplit_path(u)] = _site_page(links=["/blog/post-0", "/shop/item-0"])
+        if llms is not None:
+            routes["/llms.txt"] = llms
+        return routes
+
+    def _run(self, srv, *extra, brief=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            out, html = os.path.join(tmp, "r.json"), os.path.join(tmp, "r.html")
+            rc, stdout = run_cli(["--site", srv.base, "--json", out, "--out", html,
+                                  "--brief" if brief else "--quiet", *extra])
+            self.assertEqual(rc, 0)
+            return _read_json(out), _read_text(html), stdout
+
+    @staticmethod
+    def site_rows(rep):
+        return {r.get("registry_id") or r["id"]: r for g in rep["site"]["groups"]
+                for r in g["params"] + g["not_checked"]}
+
+    def test_sitemap_and_ai_files_by_default(self):
+        llms = Route(200, "# Пример\n\n> Сайт\n\n## Документы\n- [Блог](https://x/blog/): записи\n",
+                     {"Content-Type": "text/plain; charset=utf-8"})
+        with LocalServer({}) as srv:
+            srv.routes = self._routes(srv.base, llms=llms)
+            rep, html, _ = self._run(srv, "--limit", "4")
+            paths = [r["path"] for r in srv.requests]
+        self.assertEqual(paths.count("/sitemap.xml"), 1, "карту для отчёта не качаем второй раз")
+        self.assertEqual(paths.count("/llms.txt"), 1)
+        self.assertEqual(paths.count("/ai.txt"), 1)
+        self.assertTrue(rep["inputs"]["sitemap"] and rep["inputs"]["ai_files"],
+                        "в inputs — что просили, а не что осталось после первой страницы")
+        rows = self.site_rows(rep)
+        self.assertEqual(rows["access.sitemap_found"]["verdict"], au.OK)
+        self.assertEqual(rows["access.sitemap_xml_valid"]["verdict"], au.OK)
+        self.assertEqual(rows["ai.llms_txt"]["verdict"], au.INFO)
+        self.assertIn("есть", rows["ai.llms_txt"]["observation"])
+        self.assertEqual(rows["ai.llms_txt_format"]["verdict"], au.OK)
+        self.assertIn("ссылок списком: 1", rows["ai.llms_txt_format"]["observation"])
+        self.assertIn("нет", rows["ai.ai_txt"]["observation"])
+        self.assertIn("Разделы сайта", html)
+
+    def test_opt_out_flags(self):
+        with LocalServer({}) as srv:
+            srv.routes = self._routes(srv.base)
+            rep, _, _ = self._run(srv, "--limit", "3", "--no-ai-files", "--no-sitemap")
+            paths = [r["path"] for r in srv.requests]
+        self.assertNotIn("/llms.txt", paths)
+        self.assertNotIn("/ai.txt", paths)
+        rows = self.site_rows(rep)
+        for rid in ("ai.llms_txt", "access.sitemap_found", "access.sitemap_duplicates"):
+            self.assertEqual(rows[rid]["verdict"], au.NOTCHECKED, rid)
+            self.assertIn("не запрашивали", rows[rid]["reason"])
+        self.assertFalse(rep["inputs"]["ai_files"])
+
+    def test_single_page_makes_no_extra_requests(self):
+        with LocalServer({}) as srv:
+            srv.routes = self._routes(srv.base)
+            with tempfile.TemporaryDirectory() as tmp:
+                out = os.path.join(tmp, "r.json")
+                rc, _ = run_cli([srv.base + "/blog/", "--json", out, "--quiet"])
+                rep = _read_json(out)
+            paths = [r["path"] for r in srv.requests]
+        self.assertEqual(rc, 0)
+        self.assertEqual(sorted(paths), ["/blog/", "/robots.txt"])
+        self.assertFalse(rep["inputs"]["sitemap"] or rep["inputs"]["ai_files"]
+                         or rep["inputs"]["host_variants"])
+        self.assertIsNone(rep["sample_links"])
+
+    def test_single_page_with_flags_reports_host_rows(self):
+        with LocalServer({}) as srv:
+            srv.routes = self._routes(srv.base, dup=True)
+            with tempfile.TemporaryDirectory() as tmp:
+                out = os.path.join(tmp, "r.json")
+                run_cli([srv.base + "/blog/", "--json", out, "--quiet", "--sitemap", "--ai-files"])
+                rep = _read_json(out)
+            paths = [r["path"] for r in srv.requests]
+        self.assertEqual(paths.count("/sitemap.xml"), 1)
+        rows = self.site_rows(rep)
+        self.assertEqual(rows["access.sitemap_duplicates"]["verdict"], au.WARN)
+        self.assertIn("адрес повторяется: 1", rows["access.sitemap_duplicates"]["observation"])
+        self.assertEqual(rows["meta.title_duplicate_site"]["verdict"], au.NOTCHECKED,
+                         "по одной странице дубли title не «норма», а «не проверяли»")
+
+    def test_child_maps_are_analysed_without_new_requests(self):
+        with LocalServer({}) as srv:
+            base = srv.base
+            routes = {"/robots.txt": Route(200, f"Sitemap: {base}/index.xml\n",
+                                           {"Content-Type": "text/plain"}),
+                      "/index.xml": Route(200, '<?xml version="1.0"?><sitemapindex xmlns="http://www.'
+                                          'sitemaps.org/schemas/sitemap/0.9">'
+                                          f"<sitemap><loc>{base}/a.xml</loc></sitemap>"
+                                          f"<sitemap><loc>{base}/b.xml</loc></sitemap></sitemapindex>",
+                                          {"Content-Type": "application/xml"}),
+                      "/a.xml": Route(200, _urlset([f"{base}/a/1", f"{base}/a/2"]),
+                                      {"Content-Type": "application/xml"}),
+                      "/b.xml": Route(200, _urlset([f"{base}/b/1", "http://other.example/x"]),
+                                      {"Content-Type": "application/xml"})}
+            for u in ("/", "/a/1", "/a/2", "/b/1"):
+                routes[u] = _site_page()
+            srv.routes = routes
+            rep, _, _ = self._run(srv, "--limit", "4", "--no-ai-files")
+            paths = [r["path"] for r in srv.requests]
+        self.assertEqual(paths.count("/index.xml"), 1)
+        self.assertNotIn("/sitemap.xml", paths, "карта из robots.txt, /sitemap.xml не угадываем")
+        rows = self.site_rows(rep)
+        self.assertIn("Разобрано 3 карты", rows["access.sitemap_found"]["observation"])
+        self.assertEqual(rows["access.sitemap_host"]["verdict"], au.BAD)
+        self.assertIn("b.xml", rows["access.sitemap_host"]["evidence"])
+
+    def test_brief_has_sections_links_and_host(self):
+        with LocalServer({}) as srv:
+            srv.routes = self._routes(srv.base)
+            _, _, stdout = self._run(srv, "--limit", "5", brief=True)
+        brief = json.loads(stdout)
+        self.assertTrue(any(line.startswith("/blog/") for line in brief["site_sections"]))
+        self.assertIn("не по всему сайту", brief["sample_links"]["note"])
+        self.assertIn("ai.llms_txt", brief["host"])
+        self.assertIn("access.sitemap_found", brief["host"])
+
+
+class TestSoftLlms(unittest.TestCase):
+    def test_html_200_is_not_a_file(self):
+        with LocalServer({"/llms.txt": Route(200, "<!doctype html><html><body>404</body></html>",
+                                             {"Content-Type": "text/html"})}) as srv:
+            f = http_safe.Fetcher(delay=0, allow_local=True)
+            data = au.adapter_extra_file(srv.base + "/", "llms.txt", fetcher=f)
+        self.assertTrue(data["soft_404"])
+        row = au.s_llms([{"facts": {"llms_txt": data}}])
+        self.assertEqual(row["verdict"], au.INFO)
+        self.assertIn("llms.txt нет", row["observation"])
+        fmt = au.s_llms_format([{"facts": {"llms_txt": data}}])
+        self.assertEqual(fmt["verdict"], au.NODATA)
+
+    def test_outline(self):
+        o = au.llms_outline("\n# Проект\n> кратко\n## Docs\n- [A](https://a/x): y\n* [B](/b)\ntext\n")
+        self.assertEqual(o["h1"], "Проект")
+        self.assertEqual((o["h2"], o["links"]), (1, 2))
+        self.assertIsNone(au.llms_outline("Проект\n## Docs\n")["h1"])
+        row = au.s_llms_format([{"facts": {"llms_txt": {"status": 200, "outline":
+                                                        au.llms_outline("Проект\n")}}}])
+        self.assertEqual(row["verdict"], au.WARN)
+
+
+class TestAiSearchBots(unittest.TestCase):
+    """0.2.3 падала NameError (AI_BOTS) и писала «нет данных» на каждой странице."""
+
+    def ctx(self, bots, others=()):
+        return au.Facts({"robots": {"matrix": [{"bots": bots, "others_blocked": list(others)}]}},
+                        keys=[], options={})
+
+    def test_open_and_closed(self):
+        self.assertIn("OAI-SearchBot", au.ai_search_bots())
+        opened = au.c_ai_bots(self.ctx({"OAI-SearchBot": True, "Claude-SearchBot": True, "GPTBot": False}))
+        self.assertEqual(opened["verdict"], au.OK, "GPTBot — бот обучения, не поиска")
+        closed = au.c_ai_bots(self.ctx({"OAI-SearchBot": False, "PerplexityBot": True}))
+        self.assertEqual(closed["verdict"], au.INFO)
+        self.assertIn("OAI-SearchBot", closed["observation"])
+        extra = au.c_ai_bots(self.ctx({}, others=["Claude-SearchBot"]))
+        self.assertIn("Claude-SearchBot", extra["observation"])
+
+    def test_row_is_not_broken_in_a_page_audit(self):
+        page = au.audit_page(BASIC, fetcher=None, keys=[], options={"base_url": "https://e.ru/", "robots": False})
+        row = rows_by_id(page)["ai.search_bots_access"]
+        self.assertNotIn("не выполнилась", row["observation"])
+
+
+class TestSectionsAndSampling(unittest.TestCase):
+    def test_one_slot_takes_a_card_two_slots_take_hub_and_card(self):
+        bucket = ["https://s.ru/blog/"] + [f"https://s.ru/blog/p{i}" for i in range(9)]
+        one = au._pick_in_section(bucket, 1)
+        self.assertEqual(len(one), 1)
+        self.assertNotEqual(one[0], "https://s.ru/blog/", "при одном месте — карточка, не хаб")
+        two = au._pick_in_section(bucket, 2)
+        self.assertEqual(two[0], "https://s.ru/blog/")
+        self.assertTrue(two[1].startswith("https://s.ru/blog/p"))
+
+    def test_sections_count_urls_and_sample(self):
+        urls = (["https://s.ru/"] + [f"https://s.ru/news/{i}" for i in range(30)]
+                + [f"https://s.ru/shop/{i}" for i in range(5)] + ["https://s.ru/about"])
+        picked = au.sample_site_urls(urls, 5, home="https://s.ru/")
+        sec = au.site_sections(urls, picked, source="sitemap", shown=2)
+        self.assertEqual(sec["items"][0], {"section": "/news/", "urls": 30,
+                                           "picked": sum("/news/" in u for u in picked)})
+        self.assertEqual(sec["total"], 4)
+        self.assertEqual(sec["rest"]["sections"], 2)
+        self.assertEqual(sec["urls"], len(urls))
+        self.assertTrue(au.sections_lines(sec)[-1].startswith("ещё 2 разделов"))
+
+    def test_coverage_names_unparsed_child_maps(self):
+        rep = {"site_scan": {"source": "sitemap", "sitemap_total": 900, "sitemap_children_total": 11,
+                             "sitemap_children_parsed": 5},
+               "pages": [{"url": "https://s.ru/"}]}
+        text = au._scan_coverage_text(rep)
+        self.assertIn("по 5 дочерним картам из 11", text)
+
+
+class TestSampleLinks(unittest.TestCase):
+    """Сводка перелинковки по выборке: шаблон против основного текста. Сирот и глубины нет."""
+
+    def _page(self, url, links):
+        return {"target": url, "url": url, "facts": {"links_internal": links}}
+
+    def _pages(self):
+        nav = [["https://s.ru/", "nav", False], ["https://s.ru/blog/", "nav", False],
+               ["https://s.ru/about", "footer", False]]
+        return [self._page("https://s.ru/", nav + [["https://s.ru/blog/p1", "main", False]]),
+                self._page("https://s.ru/blog/", nav + [["https://s.ru/blog/p1/", "main", False]]),
+                self._page("https://s.ru/blog/p1", nav),
+                self._page("https://s.ru/shop/x", nav)]
+
+    def test_summary(self):
+        g = au.sample_link_graph(self._pages())
+        self.assertEqual(g["pages"], 4)
+        self.assertEqual(g["template_targets"]["count"], 3)
+        self.assertEqual(g["main_text_targets"], 1, "/blog/p1 и /blog/p1/ — одна цель")
+        self.assertEqual(g["contextual_inlinks"], 1)
+        self.assertIn("не по всему сайту", g["note"])
+        self.assertNotIn("orphans", json.dumps(g))
+        self.assertIsNone(au.sample_link_graph(self._pages()[:1]))
+
+    def test_rows_are_observations_on_the_sample(self):
+        rep = au.build_report(
+            [dict(p, rows=[], status=200, title="t") for p in self._pages()],
+            registry=au.load_registry(), keys=[], options={"delay": 2.0}, requests_made=0)
+        rows = {r.get("registry_id"): r for g in rep["site"]["groups"]
+                for r in g["params"] + g["not_checked"]}
+        row = rows["links.incoming_by_region"]
+        self.assertEqual(row["verdict"], au.INFO)
+        self.assertEqual(row["severity"], "info")
+        self.assertEqual(row["sample_scope"], "выборка")
+        self.assertIn("(выборка)", row["title"])
+        self.assertIn("не по всему сайту", row["observation"])
+        for rid in ("links.orphan_pages", "links.click_depth"):
+            self.assertEqual(rows[rid]["verdict"], au.NOTCHECKED, "сирот по выборке не выдаём")
+        self.assertNotIn("links.incoming_by_region", [i["id"] for i in rep["fix_first"]])
+        self.assertIn("Сирот и глубину", au.render_html(rep))
+
+
+class TestHostVariants(unittest.TestCase):
+    def facts(self, http=None, www=None):
+        return [{"facts": {"host_variants": {"origin": "https://s.ru", "host": "s.ru",
+                                             "http": http or {}, "www": www or {}}}}]
+
+    def test_https_redirect(self):
+        ok = au.s_https_redirect(self.facts(http={"url": "http://s.ru/", "status": 301,
+                                                   "location": "https://s.ru/"}))
+        self.assertEqual(ok["verdict"], au.OK)
+        bad = au.s_https_redirect(self.facts(http={"url": "http://s.ru/", "status": 200}))
+        self.assertEqual(bad["verdict"], au.BAD)
+        tmp = au.s_https_redirect(self.facts(http={"url": "http://s.ru/", "status": 302,
+                                                    "location": "https://s.ru/"}))
+        self.assertEqual((tmp["verdict"], tmp["severity"]), (au.WARN, "low"))
+        down = au.s_https_redirect(self.facts(http={"url": "http://s.ru/", "error": "connection_failed"}))
+        self.assertEqual(down["verdict"], au.OK)
+
+    def test_www(self):
+        ok = au.s_host_duplicates(self.facts(www={"url": "https://www.s.ru/", "status": 301,
+                                                   "location": "https://s.ru/"}))
+        self.assertEqual(ok["verdict"], au.OK)
+        dup = au.s_host_duplicates(self.facts(www={"url": "https://www.s.ru/", "status": 200}))
+        self.assertEqual(dup["verdict"], au.WARN)
+        nodns = au.s_host_duplicates(self.facts(www={"url": "https://www.s.ru/", "error": "dns_failed"}))
+        self.assertEqual(nodns["verdict"], au.OK)
+        self.assertEqual(au.s_host_duplicates([{"facts": {}}])["verdict"], au.NOTCHECKED)
+
+    def test_probe_does_not_follow_redirects(self):
+        with LocalServer({"/": Route(301, "", {"Location": "/elsewhere"})}) as srv:
+            f = http_safe.Fetcher(delay=0, allow_local=True)
+            probe = au._variant_probe(srv.base + "/", f)
+            paths = [r["path"] for r in srv.requests]
+        self.assertEqual(probe["status"], 301)
+        self.assertEqual(probe["location"], srv.base + "/elsewhere")
+        self.assertEqual(paths, ["/"], "один запрос, без перехода")
+
+    def test_ip_host_has_no_www_variant(self):
+        class F:
+            calls = []
+
+            def fetch(self, url, **kw):
+                self.calls.append(url)
+                raise au.http_safe.SafeHttpError("connection_failed", "x")
+        f = F()
+        data = au.adapter_host_variants("http://127.0.0.1:8080/", fetcher=f)
+        self.assertEqual(f.calls, [])
+        self.assertIn("skipped", data["http"])
+        self.assertIn("skipped", data["www"])
+        data = au.adapter_host_variants("https://s.ru/", fetcher=f)
+        self.assertEqual(f.calls, ["http://s.ru/", "https://www.s.ru/"])
+
+
+class TestCoverageCountsNoData(unittest.TestCase):
+    def test_no_data_is_not_checked(self):
+        page = audit_file(BASIC)
+        rep = au.build_report([page], registry=au.load_registry(), keys=[],
+                              options={"delay": 2.0}, requests_made=0)
+        cov = rep["coverage"]
+        checked = {r["registry_id"] for p in rep["pages"] for g in p["groups"] for r in g["params"]
+                   if r["verdict"] not in (au.NODATA, au.NOTCHECKED)}
+        self.assertEqual(cov["registry_checked"], len(checked))
+        self.assertGreater(cov["registry_no_data_only"], 0)
+        self.assertEqual(cov["registry_params"], cov["registry_checked"] + cov["registry_not_checked"])
+
+
+class TestHelpInRussian(unittest.TestCase):
+    def test_help(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with self.assertRaises(SystemExit):
+                au.main(["--help"])
+        text = buf.getvalue()
+        self.assertIn("использование:", text)
+        self.assertIn("пауза между запросами", text)
+        for english in ("pause between", "per-host", "show this help", "usage:", "options:"):
+            self.assertNotIn(english, text)
+        for flag in ("--no-sitemap", "--no-ai-files", "--no-host-variants"):
+            self.assertIn(flag, text)
+
+
+class TestHyphenKeyInH1(unittest.TestCase):
+    def test_key_with_space_matches_hyphenated_h1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "p.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write('<html><head><title>Интернет-магазин чая</title></head><body><main>'
+                         '<h1>Интернет-магазин чая</h1><p>Интернет-магазин чая с доставкой.</p>'
+                         "</main></body></html>")
+            page = au.audit_page(path, fetcher=None, keys=["интернет магазин чая"],
+                                 options={"base_url": "https://s.ru/", "robots": False})
+        rows = rows_by_id(page)
+        self.assertEqual(rows["content.key_in_h1"]["verdict"], au.OK)
+        self.assertEqual(rows["content.key_in_title"]["verdict"], au.OK)

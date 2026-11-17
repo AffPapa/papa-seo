@@ -22,7 +22,8 @@ description: SEO, GEO and SEO-copy toolkit for Google, Yandex and AI search (Cha
 | `audit` | «проверь сайт», «проверь весь сайт», «SEO-аудит сайта», дан только домен | `audit.py --site <домен>`; свой список адресов — `audit.py --pages list.txt` | по находкам (§3); `report`, если нужен отчёт для людей сверх HTML скрипта |
 | `yandex` | «под Яндекс», Вебмастер, Алиса, Нейро, Clean-param, рунет | — | `yandex` + профильный модуль |
 | `geo` | AI-поиск, ChatGPT, Perplexity, AI Overviews, llms.txt, AI-боты | `robots_check.py`, если нужен доступ ботов | `geo` (+ `indexing` для robots) |
-| `plan` | семантика, кластеры, структура разделов, каннибализация | — | `semantics` → `serp` → `links` |
+| `plan` | семантика, кластеры, структура разделов, каннибализация на живом сайте | — | `semantics` → `serp` → `links` |
+| `newsite` | «делаю сайт», «сайт с нуля», «сайт в разработке», «скоро запуск»; домена или опубликованных страниц ещё нет | шесть вопросов по одному (`newsite` шаг 1) | `newsite` → `semantics` → `serp` → `links` → `headlines` → `schema` → `indexing` |
 | `brief` | «составь ТЗ / бриф» | — | `brief` (+ `serp`, `semantics`) |
 | `write` | «напиши статью / текст страницы» | — | `brief` (если брифа нет) → `write` → `factcheck` → `deai` → `headlines` |
 | `refresh` | «обнови старую статью», «страница просела» | — | `measure` (если есть данные) → `edit` (режим refresh) → `factcheck` |
@@ -109,6 +110,7 @@ python3 scripts/audit.py --site https://example.ru --brief [--limit 25] [--out �
 - `references/facts-2026.md` — датированные факты со ссылками. Пороги и даты — **только** отсюда. Правила нет в файле — проверь первоисточник веб-поиском и назови дату проверки.
 - `references/folklore.md` — мифы, которые не используем как правила.
 - `references/ai-bots.yaml`, `references/yandex.md`, `references/page-types.md`, `references/ru-style.md` — боты, Яндекс, типы страниц, русская редактура.
+- `references/launch-checklist.md`, `references/site-builders.md` — чек-лист запуска нового сайта и проверенные факты о Tilda, Wix, WordPress (режим `newsite`).
 
 ## 6. Выход
 

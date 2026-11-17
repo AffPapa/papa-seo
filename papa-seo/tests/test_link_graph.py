@@ -148,3 +148,24 @@ class HtmlDirTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContextualRegionWinsTest(unittest.TestCase):
+    """0.2.4: дубль пары from→to — ссылка из текста не теряется за ссылкой меню."""
+
+    def test_main_after_nav_counts_as_contextual(self):
+        for order in (("nav", "main"), ("main", "nav"), ("footer", "body")):
+            with self.subTest(order=order):
+                g = lg.Graph("https://s.ru/")
+                g.add_edge("https://s.ru/", "https://s.ru/a", "A", order[0])
+                g.add_edge("https://s.ru/", "https://s.ru/a", "A", order[1])
+                m = g.compute("https://s.ru/")
+                self.assertEqual(len(g.src), 1)
+                self.assertEqual(m["ctx_in"][g.ids["https://s.ru/a"]], 1)
+
+    def test_two_template_links_stay_template(self):
+        g = lg.Graph("https://s.ru/")
+        g.add_edge("https://s.ru/", "https://s.ru/a", "A", "nav")
+        g.add_edge("https://s.ru/", "https://s.ru/a", "A", "footer")
+        m = g.compute("https://s.ru/")
+        self.assertEqual(m["ctx_in"][g.ids["https://s.ru/a"]], 0)

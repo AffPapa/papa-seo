@@ -55,6 +55,60 @@ S_REVIEWSNIP = ("Google structured data: Review snippet (developers.google.com/s
 S_EDITOR = "ориентир редактора"
 
 
+# Подтипы LocalBusiness по schema.org — поимённо. По окончанию имени («…Store», «…Business»)
+# ловится только часть: Dentist, Physician, Attorney, Plumber, Locksmith и другие сервисные
+# подтипы выпадали, и у них не проверялись обязательные name и address, а Яндекс-проверка
+# называла их неподдерживаемыми (yandex.md §4: «LocalBusiness и подтипы»). Типы, которые
+# одновременно значения MedicalSpecialty (Dermatology, Pediatric…), сюда не входят.
+LOCAL_BUSINESS_TYPES = frozenset({
+    "LocalBusiness", "AnimalShelter", "ArchiveOrganization", "ChildCare", "Dentist",
+    "DryCleaningOrLaundry", "EmploymentAgency", "InternetCafe", "Library", "ProfessionalService",
+    "RadioStation", "RealEstateAgent", "RecyclingCenter", "SelfStorage", "ShoppingCenter",
+    "TelevisionStation", "TouristInformationCenter", "TravelAgency", "VeterinaryCare",
+    # AutomotiveBusiness
+    "AutomotiveBusiness", "AutoBodyShop", "AutoDealer", "AutoPartsStore", "AutoRental", "AutoRepair",
+    "AutoWash", "GasStation", "MotorcycleDealer", "MotorcycleRepair",
+    # EmergencyService
+    "EmergencyService", "FireStation", "Hospital", "PoliceStation",
+    # EntertainmentBusiness
+    "EntertainmentBusiness", "AdultEntertainment", "AmusementPark", "ArtGallery", "Casino",
+    "ComedyClub", "MovieTheater", "NightClub",
+    # FinancialService
+    "FinancialService", "AccountingService", "AutomatedTeller", "BankOrCreditUnion", "InsuranceAgency",
+    # FoodEstablishment
+    "FoodEstablishment", "Bakery", "BarOrPub", "Brewery", "CafeOrCoffeeShop", "Distillery",
+    "FastFoodRestaurant", "IceCreamShop", "Restaurant", "Winery",
+    # GovernmentOffice
+    "GovernmentOffice", "PostOffice",
+    # HealthAndBeautyBusiness
+    "HealthAndBeautyBusiness", "BeautySalon", "DaySpa", "HairSalon", "HealthClub", "NailSalon",
+    "TattooParlor",
+    # HomeAndConstructionBusiness
+    "HomeAndConstructionBusiness", "Electrician", "GeneralContractor", "HVACBusiness", "HousePainter",
+    "Locksmith", "MovingCompany", "Plumber", "RoofingContractor",
+    # LegalService
+    "LegalService", "Attorney", "Notary",
+    # LodgingBusiness
+    "LodgingBusiness", "BedAndBreakfast", "Campground", "Hostel", "Hotel", "Motel", "Resort",
+    "VacationRental",
+    # MedicalBusiness
+    "MedicalBusiness", "MedicalClinic", "CovidTestingFacility", "Optician", "Pharmacy", "Physician",
+    "IndividualPhysician", "PhysiciansOffice",
+    # SportsActivityLocation
+    "SportsActivityLocation", "BowlingAlley", "ExerciseGym", "GolfCourse", "PublicSwimmingPool",
+    "SkiResort", "SportsClub", "StadiumOrArena", "TennisComplex",
+    # Store (окончание «Store» ловит остальные)
+    "Store", "Florist", "PawnShop",
+})
+# Окончания — для подтипов Store и Business, которых нет в списке выше.
+LOCAL_BUSINESS_SUFFIXES = ("Business", "Store", "Shop", "Restaurant", "Hotel", "Clinic", "Agency",
+                           "Market", "Bar", "Cafe", "Salon", "Gym", "Pharmacy", "Dealer")
+
+
+def is_local_business(type_name: str) -> bool:
+    return type_name in LOCAL_BUSINESS_TYPES or type_name.endswith(LOCAL_BUSINESS_SUFFIXES)
+
+
 def _gsd(name: str, slug: str) -> str:
     return (f"Google structured data: {name} (developers.google.com/search/docs/appearance/"
             f"structured-data/{slug}); словарь — schema.org; facts-2026 §6")
@@ -185,10 +239,8 @@ REQ_RULES: list[dict] = [
      # подтипы LocalBusiness в schema.org исчисляются сотнями: берём распространённые окончания
      # «Service» как суффикс ловил обычный schema.org Service (услуга, не место), поэтому
      # сервисные подтипы LocalBusiness перечислены поимённо.
-     "types_suffix": ("Business", "Store", "Shop", "Restaurant", "Hotel", "Clinic", "Agency",
-                      "Market", "Bar", "Cafe", "Salon", "Gym", "Pharmacy", "Dealer"),
-     "types_extra": {"FinancialService", "EmergencyService", "FoodService", "HomeAndConstructionBusiness",
-                     "EmploymentAgency", "TravelAgency", "RealEstateAgent", "AutomotiveBusiness"},
+     "types_suffix": LOCAL_BUSINESS_SUFFIXES,
+     "types_extra": set(LOCAL_BUSINESS_TYPES) | {"FoodService"},
      "doc_required": True, "required": ["name", "address"],
      "recommended": ["telephone", "openingHoursSpecification", "geo", "url", "priceRange",
                      "aggregateRating", "review", "department"],
@@ -944,7 +996,7 @@ def check_entity(rows: Rows, ent: dict, ids_seen: dict, refs: list, canonical: s
 
     # --- отзывы о себе
     if (types_set & {"Organization", "LocalBusiness"} or any(
-            t.endswith(("Business", "Store")) for t in types)) and via not in ROLE_PROPS:
+            is_local_business(t) for t in types)) and via not in ROLE_PROPS:
         if node.get("review") or node.get("aggregateRating"):
             rows.add("markup.sd_self_serving", "fail",
                      "Отзывы о себе: страница, где сущность сама контролирует отзывы, звёзд не получает",
@@ -1216,9 +1268,7 @@ def check_structured_data(*, jsonld_blocks: list, microdata_types: list | None =
         rows.add("markup.yandex_supported", "skip", "Типов в разметке нет")
     else:
         unsupported = sorted(t for t in type_counts
-                             if t not in YANDEX_SUPPORTED
-                             and not any(t.endswith(sfx) for sfx in ("Business", "Store", "Shop",
-                                                                     "Restaurant", "Hotel")))
+                             if t not in YANDEX_SUPPORTED and not is_local_business(t))
         rows.add("markup.yandex_supported", "info" if unsupported else "pass",
                  "Нет в списке поддерживаемых Яндексом: " + ", ".join(unsupported) if unsupported
                  else "Все типы есть в списке поддерживаемых Яндексом",
